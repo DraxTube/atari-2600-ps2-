@@ -20,6 +20,14 @@ extern unsigned int size_usbd_irx;
 extern unsigned char usbhdfsd_irx[];
 extern unsigned int size_usbhdfsd_irx;
 
+static void delay(int count)
+{
+    int i, j;
+    for (i = 0; i < count; i++) {
+        for (j = 0; j < 100000; j++) nopdelay();
+    }
+}
+
 static void reset_IOP(void)
 {
     SifInitRpc(0);
@@ -57,20 +65,15 @@ static void load_modules(void)
     scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
 
     /* Wait for USB to initialize */
-    scr_printf("\nWaiting for USB...\n");
-    int i, j;
-    for (i = 0; i < 100; i++) {
-        for (j = 0; j < 100000; j++) nopdelay();
-        
-        FILE* test = fopen("mass:/", "rb");
-        if (test) {
-            fclose(test);
-            scr_printf("USB ready!\n\n");
-            return;
-        }
-    }
-    
-    scr_printf("WARNING: USB timeout\n\n");
+    scr_printf("\nWaiting for USB to initialize");
+    delay(10);
+    scr_printf(".");
+    delay(10);
+    scr_printf(".");
+    delay(10);
+    scr_printf(".");
+    delay(10);
+    scr_printf(" done!\n\n");
 }
 
 int main(int argc, char** argv)
@@ -111,7 +114,10 @@ int main(int argc, char** argv)
     /* Try to load ROM from USB */
     const char* rom_paths[] = {
         "mass:/ROMS/game.bin",
+        "mass:/ROMS/GAME.BIN",
+        "mass:/roms/game.bin",
         "mass:/game.bin",
+        "mass:/GAME.BIN",
         "mass0:/ROMS/game.bin",
         "mass0:/game.bin",
         NULL
@@ -120,12 +126,15 @@ int main(int argc, char** argv)
     scr_printf("Searching for ROM...\n");
     int i;
     for (i = 0; rom_paths[i] != NULL; i++) {
-        scr_printf("  Trying: %s\n", rom_paths[i]);
+        scr_printf("  %s ... ", rom_paths[i]);
+        
         if (cart_load(&emu, rom_paths[i])) {
             rom_path = rom_paths[i];
             rom_loaded = 1;
-            scr_printf("  SUCCESS!\n\n");
+            scr_printf("OK!\n\n");
             break;
+        } else {
+            scr_printf("no\n");
         }
     }
 
