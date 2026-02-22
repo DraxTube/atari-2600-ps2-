@@ -17,6 +17,7 @@ EE_CFLAGS = -O2 -Wall -G0 \
             -mno-abicalls -mno-gpopt \
             -march=r5900 -mabi=eabi \
             -fno-common \
+            -D_EE \
             $(EE_INCS)
 
 EE_LDFLAGS = -L$(PS2SDK)/ee/lib \
