@@ -1,5 +1,6 @@
 #include "emulator.h"
 #include "cartridge.h"
+#include "cpu6507.h"
 #include "ui.h"
 #include <stdio.h>
 #include <string.h>
