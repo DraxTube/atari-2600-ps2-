@@ -58,9 +58,9 @@ static void load_modules(void)
 
     /* Wait for USB to initialize */
     scr_printf("\nWaiting for USB...\n");
-    int i;
+    int i, j;
     for (i = 0; i < 100; i++) {
-        nopdelay(100000);
+        for (j = 0; j < 100000; j++) nopdelay();
         
         FILE* test = fopen("mass:/", "rb");
         if (test) {
@@ -150,7 +150,7 @@ int main(int argc, char** argv)
 
     scr_printf("ROM Info:\n");
     scr_printf("  Path: %s\n", rom_path);
-    scr_printf("  Size: %d bytes\n", emu.cart.rom_size);
+    scr_printf("  Size: %lu bytes\n", (unsigned long)emu.cart.rom_size);
     scr_printf("  Type: ");
     switch(emu.cart.type) {
         case CART_2K: scr_printf("2K\n"); break;
@@ -201,6 +201,8 @@ int main(int argc, char** argv)
 /* PC stub */
 int main(int argc, char** argv)
 {
+    (void)argc;
+    (void)argv;
     printf("This is PS2 only.\n");
     return 1;
 }
