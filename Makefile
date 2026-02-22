@@ -11,16 +11,27 @@ EE_OBJS = \
 
 PS2SDK ?= /usr/local/ps2dev/ps2sdk
 
+# IRX modules
+EE_IRX_OBJS = \
+	usbd_irx.o \
+	usbhdfsd_irx.o
+
+EE_OBJS += $(EE_IRX_OBJS)
+
 EE_INCS = -Isrc -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include
 
-EE_LIBS = -ldebug -lpad -lpatches -lc -lkernel
+EE_LIBS = -ldebug -lpad -lpatches -lfileXio -lc -lkernel
 
 EE_CFLAGS += -D_EE -O2 -Wall -Wno-unused-variable -Wno-unused-function
 
 all: $(EE_BIN)
 
 clean:
-	rm -f $(EE_OBJS) $(EE_BIN)
+	rm -f $(EE_OBJS) src/*.o $(EE_BIN)
+
+# Embed IRX files
+%_irx.o: $(PS2SDK)/iop/irx/%.irx
+	bin2o $< $@ $*_irx
 
 include $(PS2SDK)/samples/Makefile.pref
 include $(PS2SDK)/samples/Makefile.eeglobal
