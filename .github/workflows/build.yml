@@ -21,31 +21,20 @@ jobs:
     - name: Install dependencies
       run: |
         apk add --no-cache make git bash zip
-        apk add --no-cache gmp-dev mpfr-dev mpc1-dev
 
-    - name: Verify toolchain
+    - name: Check gsKit
       run: |
-        export PS2SDK=/usr/local/ps2dev/ps2sdk
-        export GSKIT=/usr/local/ps2dev/gsKit
-        export PATH="/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin:$PATH"
-        echo "--- Checking ee-gcc ---"
-        ee-gcc --version || mips64r5900el-ps2-elf-gcc --version
-        echo "--- Checking PS2SDK ---"
-        ls $PS2SDK/ee/lib/ | head -20
-        echo "--- Checking gsKit ---"
-        ls $GSKIT/lib/ 2>/dev/null || echo "gsKit not at GSKIT path"
-        echo "--- Checking shared libs ---"
-        ls /usr/lib/libgmp* /usr/lib/libmpfr* /usr/lib/libmpc* 2>/dev/null || true
-        find / -name "libmpc.so*" 2>/dev/null || true
-        find / -name "libmpfr.so*" 2>/dev/null || true
-        find / -name "libgmp.so*" 2>/dev/null || true
+        echo "Checking gsKit location..."
+        find /usr/local/ps2dev -name "gsKit.h" 2>/dev/null || echo "gsKit.h not found"
+        find /usr/local/ps2dev -name "libgskit.a" 2>/dev/null || echo "libgskit.a not found"
+        ls -la /usr/local/ps2dev/gsKit/include/ 2>/dev/null || echo "gsKit include dir not found"
+        ls -la /usr/local/ps2dev/ps2sdk/ports/include/ 2>/dev/null || echo "ports include dir not found"
 
     - name: Build emulator
       run: |
         export PS2SDK=/usr/local/ps2dev/ps2sdk
         export GSKIT=/usr/local/ps2dev/gsKit
         export PATH="/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin:$PATH"
-        export LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH"
         make clean
         make
 
@@ -53,8 +42,10 @@ jobs:
       run: |
         mkdir -p release
         cp atari2600.elf release/
-        cp README.md release/ 2>/dev/null || true
-        echo "Build completed: $(date)" > release/BUILD_INFO.txt
+        echo "Atari 2600 Emulator for PS2" > release/README.txt
+        echo "" >> release/README.txt
+        echo "Put game.bin on USB root" >> release/README.txt
+        echo "USB must be FAT32" >> release/README.txt
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -62,4 +53,3 @@ jobs:
         name: atari2600-ps2
         path: release/
         retention-days: 90
-        if-no-files-found: error
