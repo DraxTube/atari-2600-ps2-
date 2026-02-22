@@ -23,19 +23,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug - trova ee-gcc
+      - name: Verifica toolchain
         run: |
-          echo "=== Contenuto /usr/local/ps2dev ==="
-          ls /usr/local/ps2dev/ || echo "cartella non esiste"
-          echo "=== Contenuto ee/bin ==="
-          ls /usr/local/ps2dev/ee/bin/ 2>/dev/null || echo "cartella ee/bin non esiste"
-          echo "=== Cerca qualsiasi gcc nel sistema ==="
-          find / -name "*gcc*" -type f 2>/dev/null | grep -v proc
-          echo "=== Cerca ee- binari ==="
-          find / -name "ee-*" -type f 2>/dev/null | grep -v proc
+          mips64r5900el-ps2-elf-gcc --version
 
       - name: Compila ELF
         run: make -j$(nproc)
+
+      - name: Verifica ELF
+        run: |
+          ls -lh haunted2600.elf
+          mips64r5900el-ps2-elf-size haunted2600.elf
 
       - name: Upload haunted2600.elf
         uses: actions/upload-artifact@v4
@@ -43,3 +41,16 @@ jobs:
           name: haunted2600-ps2-elf
           path: haunted2600.elf
           retention-days: 30
+
+      - name: Crea Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: haunted2600.elf
+          name: haunted2600-ps2 ${{ github.ref_name }}
+          body: |
+            ## Haunted House Atari 2600 Emulator per PS2
+            Metti la ROM in `mass:/roms/haunted_house.bin` e avvia con FreeMCBoot.
+            **Controlli:** D-Pad=Joystick | Croce=Fuoco | START=Reset | SELECT=Select
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
