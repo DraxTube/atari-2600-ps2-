@@ -1,9 +1,6 @@
-# Makefile per haunted2600-ps2
-
 EE_PREFIX = mips64r5900el-ps2-elf
 EE_CC     = $(EE_PREFIX)-gcc
 EE_SIZE   = $(EE_PREFIX)-size
-EE_OBJCOPY= $(EE_PREFIX)-objcopy
 
 PS2DEV   ?= /usr/local/ps2dev
 PS2SDK   ?= $(PS2DEV)/ps2sdk
@@ -16,7 +13,8 @@ EE_INCS  = -I$(PS2SDK)/ee/include \
            -I$(PS2SDK)/ports/include \
            -Isrc
 
-EE_CFLAGS = -O2 -Wall -G0 -mno-gpopt \
+EE_CFLAGS = -O2 -Wall -G0 \
+            -mno-abicalls -mno-gpopt \
             -march=r5900 -mabi=eabi \
             -fno-common \
             $(EE_INCS)
@@ -24,7 +22,8 @@ EE_CFLAGS = -O2 -Wall -G0 -mno-gpopt \
 EE_LDFLAGS = -L$(PS2SDK)/ee/lib \
              -L$(PS2SDK)/ports/lib \
              -T$(PS2SDK)/ee/startup/linkfile \
-             -mno-gpopt -march=r5900 -mabi=eabi
+             -mno-abicalls -mno-gpopt \
+             -march=r5900 -mabi=eabi
 
 EE_LIBS  = -lpad -lgraph -ldraw -ldraw3d -lpacket -ldma \
            -lfileXio -lloadfile -lsifrpc -lkernel \
