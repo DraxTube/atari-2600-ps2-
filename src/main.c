@@ -13,23 +13,21 @@
 #include <iopcontrol.h>
 #include <iopheap.h>
 #include <debug.h>
+#include <libmc.h>
 
-/* External IRX modules - will be embedded in ELF */
+/* External IRX modules */
 extern unsigned char usbd_irx[];
 extern unsigned int size_usbd_irx;
 extern unsigned char usbhdfsd_irx[];
 extern unsigned int size_usbhdfsd_irx;
 
-static void delay_sec(int seconds)
+static void simple_delay(int loops)
 {
-    int i;
-    for (i = 0; i < seconds * 50; i++) {
-        /* VSync wait - more reliable */
-        asm volatile(
-            "li $v0, 2\n"
-            "syscall\n"
-            ::: "v0"
-        );
+    volatile int i, j;
+    for (i = 0; i < loops; i++) {
+        for (j = 0; j < 50000; j++) {
+            /* Empty loop */
+        }
     }
 }
 
@@ -67,17 +65,19 @@ static void load_modules(void)
     ret = SifExecModuleBuffer(usbhdfsd_irx, size_usbhdfsd_irx, 0, NULL, NULL);
     scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
 
-    scr_printf("\nWaiting 3 seconds for USB...\n");
-    delay_sec(3);
-    scr_printf("Done waiting.\n\n");
+    scr_printf("\nWaiting for USB");
+    int i;
+    for (i = 0; i < 30; i++) {
+        simple_delay(100);
+        scr_printf(".");
+    }
+    scr_printf(" done!\n\n");
 }
 
 int main(int argc, char** argv)
 {
     EmulatorState emu;
-    const char* rom_path = NULL;
-    int rom_loaded = 0;
-    int i;
+    char* rom_path = NULL;
 
     (void)argc;
     (void)argv;
@@ -94,57 +94,48 @@ int main(int argc, char** argv)
     load_modules();
 
     /* Initialize emulator */
-    scr_printf("Step 1: Initializing emulator...\n");
+    scr_printf("Initializing emulator... ");
     emu_init(&emu);
-    scr_printf("Step 1: OK\n\n");
+    scr_printf("OK\n");
 
-    /* Init UI (pad only for now) */
-    scr_printf("Step 2: Initializing controls...\n");
+    /* Init UI */
+    scr_printf("Initializing controls... ");
     if (!ui_init()) {
-        scr_printf("Step 2: FAILED\n");
+        scr_printf("FAILED\n");
         SleepThread();
         return 1;
     }
-    scr_printf("Step 2: OK\n\n");
+    scr_printf("OK\n\n");
 
-    /* Try to load ROM from USB */
-    const char* rom_paths[] = {
-        "mass:/ROMS/game.bin",
-        "mass:/ROMS/GAME.BIN",
-        "mass:/game.bin",
-        "mass:/GAME.BIN",
-        "mass0:/ROMS/game.bin",
-        "mass0:/game.bin",
-        NULL
-    };
-
-    scr_printf("Step 3: Searching for ROM...\n");
+    /* File browser */
+    scr_printf("Opening file browser...\n\n");
+    simple_delay(50);
     
-    for (i = 0; rom_paths[i] != NULL; i++) {
-        scr_printf("  Trying: %s\n", rom_paths[i]);
-        
-        if (cart_load(&emu, rom_paths[i])) {
-            rom_path = rom_paths[i];
-            rom_loaded = 1;
-            scr_printf("  FOUND!\n");
-            break;
-        }
-    }
-
-    if (!rom_loaded) {
-        scr_printf("\n");
-        scr_printf("ERROR: No ROM found!\n\n");
-        scr_printf("Put game.bin in USB:/ROMS/\n");
-        scr_printf("USB must be FAT32.\n\n");
+    rom_path = ui_file_browser("mass:/");
+    
+    if (rom_path == NULL) {
+        scr_printf("\nNo ROM selected.\n");
         SleepThread();
         return 1;
     }
 
-    scr_printf("\nStep 4: ROM loaded!\n");
-    scr_printf("  Size: %lu bytes\n\n", (unsigned long)emu.cart.rom_size);
+    scr_printf("\nSelected: %s\n", rom_path);
+    scr_printf("Loading ROM... ");
+    
+    if (!cart_load(&emu, rom_path)) {
+        scr_printf("FAILED\n");
+        scr_printf("Cannot load ROM file.\n");
+        SleepThread();
+        return 1;
+    }
+    
+    scr_printf("OK\n");
+    scr_printf("Size: %lu bytes\n\n", (unsigned long)emu.cart.rom_size);
 
-    scr_printf("Step 5: Starting emulation...\n");
-    scr_printf("  TRIANGLE = Exit\n\n");
+    scr_printf("Starting emulation...\n");
+    scr_printf("Press TRIANGLE to exit\n\n");
+    
+    simple_delay(100);
 
     emu_reset(&emu);
 
