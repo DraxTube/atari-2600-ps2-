@@ -8,6 +8,8 @@ EE_OBJS = \
 	src/riot.o \
 	src/cartridge.o \
 	src/ui.o \
+	sio2man_irx.o \
+	padman_irx.o \
 	usbd_irx.o \
 	usbhdfsd_irx.o
 
@@ -25,11 +27,23 @@ clean:
 	rm -f $(EE_OBJS) src/*.o $(EE_BIN) *_irx.c *_irx.o
 
 # Generate C source from IRX, then compile
+sio2man_irx.c: $(PS2SDK)/iop/irx/sio2man.irx
+	bin2c $< $@ sio2man_irx
+
+padman_irx.c: $(PS2SDK)/iop/irx/padman.irx
+	bin2c $< $@ padman_irx
+
 usbd_irx.c: $(PS2SDK)/iop/irx/usbd.irx
 	bin2c $< $@ usbd_irx
 
 usbhdfsd_irx.c: $(PS2SDK)/iop/irx/usbhdfsd.irx
 	bin2c $< $@ usbhdfsd_irx
+
+sio2man_irx.o: sio2man_irx.c
+	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
+
+padman_irx.o: padman_irx.c
+	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
 
 usbd_irx.o: usbd_irx.c
 	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
