@@ -8,7 +8,6 @@
 #include <kernel.h>
 #include <debug.h>
 #include <libpad.h>
-#include <dirent.h>
 
 static char padBuf[256] __attribute__((aligned(64)));
 static int frame_count = 0;
@@ -43,6 +42,16 @@ static uint16_t read_pad(void)
     }
 
     return buttons.btns;
+}
+
+static int file_exists(const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+        return 1;
+    }
+    return 0;
 }
 
 int ui_init(void)
@@ -106,104 +115,92 @@ void ui_handle_input(EmulatorState* emu)
 char* ui_file_browser(const char* start_path)
 {
     static char selected_file[MAX_PATH_LEN];
+    int i;
     
-    scr_printf("Searching for ROMs...\n\n");
+    (void)start_path;
     
-    /* Try common paths directly */
-    const char* try_paths[] = {
-        "mass:/ROMS",
-        "mass:/roms",
-        "mass:/Roms",
-        "mass:/",
-        "mass0:/ROMS",
-        "mass0:/",
+    scr_printf("Searching for ROM file...\n\n");
+    
+    /* Try many common file paths directly */
+    const char* try_files[] = {
+        "mass:/ROMS/game.bin",
+        "mass:/ROMS/game.a26",
+        "mass:/ROMS/GAME.BIN",
+        "mass:/ROMS/GAME.A26",
+        "mass:/ROMS/Game.bin",
+        "mass:/ROMS/Game.a26",
+        "mass:/roms/game.bin",
+        "mass:/roms/game.a26",
+        "mass:/game.bin",
+        "mass:/game.a26",
+        "mass:/GAME.BIN",
+        "mass:/GAME.A26",
+        "mass0:/ROMS/game.bin",
+        "mass0:/ROMS/game.a26",
+        "mass0:/game.bin",
+        "mass0:/game.a26",
+        /* Common ROM names */
+        "mass:/ROMS/pitfall.bin",
+        "mass:/ROMS/pacman.bin",
+        "mass:/ROMS/asteroids.bin",
+        "mass:/ROMS/spaceinvaders.bin",
+        "mass:/ROMS/breakout.bin",
+        "mass:/ROMS/combat.bin",
+        "mass:/ROMS/adventure.bin",
+        "mass:/ROMS/pitfall.a26",
+        "mass:/ROMS/pacman.a26",
+        "mass:/ROMS/asteroids.a26",
+        "mass:/ROMS/spaceinvaders.a26",
+        "mass:/ROMS/breakout.a26",
+        "mass:/ROMS/combat.a26",
+        "mass:/ROMS/adventure.a26",
         NULL
     };
     
-    int p;
-    for (p = 0; try_paths[p] != NULL; p++) {
-        scr_printf("Checking %s ... ", try_paths[p]);
+    for (i = 0; try_files[i] != NULL; i++) {
+        scr_printf("  Trying: %s ... ", try_files[i]);
         
-        DIR* dir = opendir(try_paths[p]);
-        if (dir == NULL) {
-            scr_printf("no\n");
-            continue;
-        }
-        
-        scr_printf("ok\n");
-        scr_printf("  Reading contents...\n");
-        
-        struct dirent* entry;
-        int found_count = 0;
-        
-        while ((entry = readdir(dir)) != NULL) {
-            /* Skip hidden files */
-            if (entry->d_name[0] == '.') continue;
+        if (file_exists(try_files[i])) {
+            scr_printf("FOUND!\n\n");
             
-            int len = strlen(entry->d_name);
-            if (len < 4) continue;
+            strcpy(selected_file, try_files[i]);
             
-            /* Check extension */
-            char* ext = entry->d_name + len - 4;
-            if (strcasecmp(ext, ".bin") == 0 || strcasecmp(ext, ".a26") == 0) {
-                found_count++;
-                scr_printf("  FOUND: %s\n", entry->d_name);
+            scr_printf("ROM found: %s\n\n", selected_file);
+            scr_printf("Press X to load\n");
+            scr_printf("Press TRIANGLE to cancel\n");
+            
+            /* Wait for button */
+            while (1) {
+                uint16_t btns = read_pad();
                 
-                /* Build full path */
-                snprintf(selected_file, MAX_PATH_LEN, "%s/%s", 
-                    try_paths[p], entry->d_name);
-                
-                closedir(dir);
-                
-                scr_printf("\n");
-                scr_printf("Press X to load this ROM\n");
-                scr_printf("Press TRIANGLE to cancel\n");
-                
-                /* Wait for button */
-                while (1) {
-                    uint16_t btns = read_pad();
-                    
-                    if (!(btns & PAD_CROSS)) {
-                        /* Wait for release */
-                        while (!(read_pad() & PAD_CROSS)) {
-                            simple_delay(1);
-                        }
-                        return selected_file;
-                    }
-                    
-                    if (!(btns & PAD_TRIANGLE)) {
-                        /* Wait for release */
-                        while (!(read_pad() & PAD_TRIANGLE)) {
-                            simple_delay(1);
-                        }
-                        scr_printf("Cancelled.\n");
-                        return NULL;
-                    }
-                    
-                    simple_delay(1);
+                if (!(btns & PAD_CROSS)) {
+                    while (!(read_pad() & PAD_CROSS)) simple_delay(1);
+                    return selected_file;
                 }
+                
+                if (!(btns & PAD_TRIANGLE)) {
+                    while (!(read_pad() & PAD_TRIANGLE)) simple_delay(1);
+                    return NULL;
+                }
+                
+                simple_delay(1);
             }
-        }
-        
-        closedir(dir);
-        
-        if (found_count == 0) {
-            scr_printf("  No ROMs here\n");
+        } else {
+            scr_printf("no\n");
         }
     }
     
     scr_printf("\n");
     scr_printf("================================\n");
-    scr_printf("ERROR: No ROM files found!\n");
+    scr_printf("ROM NOT FOUND!\n");
     scr_printf("================================\n");
     scr_printf("\n");
-    scr_printf("Instructions:\n");
-    scr_printf("1. USB must be FAT32\n");
-    scr_printf("2. Create folder ROMS\n");
-    scr_printf("3. Put .bin or .a26 files inside\n");
+    scr_printf("Rename your ROM to 'game.bin'\n");
+    scr_printf("and put it in USB:/ROMS/\n");
+    scr_printf("\n");
+    scr_printf("USB must be FAT32 format.\n");
     scr_printf("\n");
     
-    (void)start_path;
     return NULL;
 }
 
