@@ -9,7 +9,6 @@
 #include <debug.h>
 #include <libpad.h>
 #include <dirent.h>
-#include <sys/stat.h>
 
 static char padBuf[256] __attribute__((aligned(64)));
 static uint16_t pad_old = 0xFFFF;
@@ -75,10 +74,11 @@ static int scan_directory(const char* path)
 {
     DIR* dir;
     struct dirent* entry;
-    struct stat st;
     char fullpath[MAX_PATH_LEN];
     
     file_count = 0;
+    
+    scr_printf("  Scanning: %s\n", path);
     
     /* Add parent directory entry if not at root */
     if (strcmp(path, "mass:/") != 0 && strcmp(path, "mass:") != 0) {
@@ -87,36 +87,38 @@ static int scan_directory(const char* path)
         file_count++;
     }
     
+    scr_printf("  Opening directory...\n");
+    
     dir = opendir(path);
     if (dir == NULL) {
-        scr_printf("Cannot open directory: %s\n", path);
+        scr_printf("  ERROR: Cannot open directory!\n");
+        scr_printf("  Make sure USB is FAT32 formatted.\n");
         return 0;
     }
+    
+    scr_printf("  Reading entries...\n");
     
     while ((entry = readdir(dir)) != NULL && file_count < MAX_ENTRIES) {
         /* Skip . and .. */
         if (strcmp(entry->d_name, ".") == 0) continue;
         if (strcmp(entry->d_name, "..") == 0) continue;
         
-        /* Build full path to check if directory */
+        scr_printf("    Found: %s\n", entry->d_name);
+        
+        /* Check if it's a directory by trying to open it */
         snprintf(fullpath, MAX_PATH_LEN, "%s%s%s", 
             path, 
             (path[strlen(path)-1] == '/') ? "" : "/",
             entry->d_name);
         
         int is_dir = 0;
-        if (stat(fullpath, &st) == 0) {
-            is_dir = S_ISDIR(st.st_mode);
-        } else {
-            /* stat failed, try to detect by opening as dir */
-            DIR* test = opendir(fullpath);
-            if (test) {
-                is_dir = 1;
-                closedir(test);
-            }
+        DIR* test = opendir(fullpath);
+        if (test) {
+            is_dir = 1;
+            closedir(test);
         }
         
-        /* Only show directories and ROM files */
+        /* Show directories and ROM files */
         if (is_dir || is_rom_file(entry->d_name)) {
             strncpy(file_list[file_count].name, entry->d_name, 127);
             file_list[file_count].name[127] = '\0';
@@ -126,20 +128,23 @@ static int scan_directory(const char* path)
     }
     
     closedir(dir);
+    
+    scr_printf("  Found %d items.\n", file_count);
+    
     return file_count;
 }
 
 static void draw_file_list(int selected, int scroll)
 {
     int i;
-    int lines_to_show = 20;
+    int lines_to_show = 18;
     
     scr_clear();
-    scr_printf("=== Atari 2600 - File Browser ===\n\n");
+    scr_printf("=== Atari 2600 ROM Browser ===\n\n");
     scr_printf("Path: %s\n\n", current_path);
     
     if (file_count == 0) {
-        scr_printf("No files found!\n");
+        scr_printf("No ROM files found!\n\n");
         scr_printf("Put .bin or .a26 files on USB\n");
     } else {
         for (i = scroll; i < file_count && i < scroll + lines_to_show; i++) {
@@ -157,9 +162,9 @@ static void draw_file_list(int selected, int scroll)
         }
     }
     
-    scr_printf("\n--------------------------------\n");
-    scr_printf("UP/DOWN: Navigate | X: Select\n");
-    scr_printf("O: Back | TRIANGLE: Cancel\n");
+    scr_printf("\n------------------------------\n");
+    scr_printf("UP/DOWN=Navigate X=Select\n");
+    scr_printf("O=Back TRIANGLE=Cancel\n");
 }
 
 int ui_init(void)
@@ -230,11 +235,39 @@ char* ui_file_browser(const char* start_path)
     uint16_t btns, old_btns = 0xFFFF;
     int debounce = 0;
     
+    scr_printf("File browser starting...\n");
+    scr_printf("Start path: %s\n\n", start_path);
+    
     strncpy(current_path, start_path, MAX_PATH_LEN - 1);
     current_path[MAX_PATH_LEN - 1] = '\0';
     
     /* Initial scan */
-    scan_directory(current_path);
+    scr_printf("Scanning directory...\n");
+    int count = scan_directory(current_path);
+    
+    scr_printf("\nPress X to continue...\n");
+    
+    /* Wait for X button */
+    while (1) {
+        btns = read_pad();
+        if (!(btns & PAD_CROSS)) break;
+        if (!(btns & PAD_TRIANGLE)) return NULL;
+        simple_delay(1);
+    }
+    /* Wait for release */
+    while (1) {
+        btns = read_pad();
+        if (btns & PAD_CROSS) break;
+        simple_delay(1);
+    }
+    
+    if (count == 0) {
+        scr_printf("\nNo files found!\n");
+        scr_printf("Put .bin or .a26 ROM files on USB.\n");
+        SleepThread();
+        return NULL;
+    }
+    
     draw_file_list(selected, scroll);
     
     while (1) {
@@ -247,7 +280,7 @@ char* ui_file_browser(const char* start_path)
             continue;
         }
         
-        /* Detect button press (transition from not pressed to pressed) */
+        /* Detect button press */
         uint16_t pressed = old_btns & ~btns;
         old_btns = btns;
         
@@ -272,7 +305,7 @@ char* ui_file_browser(const char* start_path)
         if (pressed & PAD_DOWN) {
             if (selected < file_count - 1) {
                 selected++;
-                if (selected >= scroll + 20) scroll = selected - 19;
+                if (selected >= scroll + 18) scroll = selected - 17;
                 redraw = 1;
             }
             debounce = 5;
@@ -282,19 +315,15 @@ char* ui_file_browser(const char* start_path)
         if (pressed & PAD_CROSS) {
             if (file_count > 0) {
                 if (file_list[selected].is_dir) {
-                    /* Enter directory */
                     if (strcmp(file_list[selected].name, "..") == 0) {
-                        /* Go up */
                         char* last_slash = strrchr(current_path, '/');
                         if (last_slash && last_slash != current_path) {
                             *last_slash = '\0';
-                            /* Make sure we keep at least "mass:/" */
                             if (strlen(current_path) < 6) {
                                 strcpy(current_path, "mass:/");
                             }
                         }
                     } else {
-                        /* Go into subdirectory */
                         int len = strlen(current_path);
                         if (current_path[len-1] != '/') {
                             strcat(current_path, "/");
@@ -306,7 +335,6 @@ char* ui_file_browser(const char* start_path)
                     scan_directory(current_path);
                     redraw = 1;
                 } else {
-                    /* Select ROM file */
                     snprintf(selected_file, MAX_PATH_LEN, "%s%s%s",
                         current_path,
                         (current_path[strlen(current_path)-1] == '/') ? "" : "/",
@@ -319,7 +347,6 @@ char* ui_file_browser(const char* start_path)
         
         /* O - Back */
         if (pressed & PAD_CIRCLE) {
-            /* Go up one directory */
             char* last_slash = strrchr(current_path, '/');
             if (last_slash && last_slash != current_path) {
                 *last_slash = '\0';
