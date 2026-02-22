@@ -23,9 +23,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Installa make
+        run: apk add --no-cache make
+
       - name: Verifica toolchain
-        run: |
-          mips64r5900el-ps2-elf-gcc --version
+        run: mips64r5900el-ps2-elf-gcc --version
 
       - name: Compila ELF
         run: make -j$(nproc)
