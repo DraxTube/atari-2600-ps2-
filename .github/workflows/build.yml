@@ -20,15 +20,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        apk add --no-cache make git bash zip
-
-    - name: Check gsKit
-      run: |
-        echo "Checking gsKit location..."
-        find /usr/local/ps2dev -name "gsKit.h" 2>/dev/null || echo "gsKit.h not found"
-        find /usr/local/ps2dev -name "libgskit.a" 2>/dev/null || echo "libgskit.a not found"
-        ls -la /usr/local/ps2dev/gsKit/include/ 2>/dev/null || echo "gsKit include dir not found"
-        ls -la /usr/local/ps2dev/ps2sdk/ports/include/ 2>/dev/null || echo "ports include dir not found"
+        apk add --no-cache make git bash zip gmp mpc1 mpfr4
 
     - name: Build emulator
       run: |
