@@ -14,10 +14,11 @@ EE_OBJS = \
 	usbhdfsd_irx.o
 
 PS2SDK ?= /usr/local/ps2dev/ps2sdk
+GSKIT  ?= /usr/local/ps2dev/gsKit
 
-EE_INCS = -Isrc -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I.
+EE_INCS = -Isrc -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include -I.
 
-EE_LIBS = -ldebug -lpad -lpatches -lfileXio -lc -lkernel
+EE_LIBS = -lgskit -ldmakit -ldebug -lpad -lpatches -lfileXio -lc -lkernel
 
 EE_CFLAGS += -D_EE -O2 -Wall -Wno-unused-variable -Wno-unused-function
 
