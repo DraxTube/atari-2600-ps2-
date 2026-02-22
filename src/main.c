@@ -81,12 +81,12 @@ static void gs_init(void) {
     graph_set_mode(GRAPH_MODE_AUTO, GRAPH_MODE_NTSC, GRAPH_MODE_FIELD, GRAPH_ENABLE);
     graph_set_screen(0, 0, SCREEN_W, SCREEN_H);
     graph_set_bgcolor(0, 0, 0);
-    graph_set_offset(0, 0, SCREEN_W / 2, SCREEN_H / 2);
+    
 
     fb.width   = SCREEN_W;
     fb.height  = SCREEN_H;
     fb.mask    = 0;
-    fb.psm     = GS_PSM_CT16;
+    fb.psm     = GS_PSM_16;
     fb.address = graph_vram_allocate(fb.width, fb.height, fb.psm, GRAPH_ALIGN_PAGE);
 
     zb.enable  = 0;
@@ -145,7 +145,14 @@ static void gs_blit_frame(void) {
             rect.v1.x = ex; rect.v1.y = ey; rect.v1.z = 0;
             rect.color = c2;
 
-            q = draw_flat_rectangle(q, 0, &rect);
+            q = draw_prim_start(q, 0, &rect.color, PRIM_SPRITE);
+q->dw[0] = GIF_SET_XYZ(rect.v0.x, rect.v0.y, 0);
+q->dw[1] = 0;
+q++;
+q->dw[0] = GIF_SET_XYZ(rect.v1.x, rect.v1.y, 0);
+q->dw[1] = 0;
+q++;
+q = draw_prim_end(q, 2, DRAW_XYZ_REGLIST);
 
             // Flush se il packet si riempie
             if ((q - pkt->data) > 4000) {
