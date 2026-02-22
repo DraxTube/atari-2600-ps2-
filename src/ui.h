@@ -1,10 +1,12 @@
 #ifndef UI_H
 #define UI_H
 
-int ui_init(void);
-void ui_shutdown(void);
+#include "types.h"
+
+int   ui_init(void);
+void  ui_shutdown(void);
+void  ui_render_frame(EmulatorState* emu);
+void  ui_handle_input(EmulatorState* emu);
 char* ui_file_browser(const char* path);
-void ui_render_frame(void);
-void ui_handle_input(void);
 
 #endif
