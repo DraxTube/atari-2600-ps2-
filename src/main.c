@@ -14,7 +14,6 @@
 #include <iopheap.h>
 #include <debug.h>
 
-/* External IRX modules */
 extern unsigned char usbd_irx[];
 extern unsigned int size_usbd_irx;
 extern unsigned char usbhdfsd_irx[];
@@ -29,7 +28,6 @@ static void simple_delay(int loops)
     volatile int i, j;
     for (i = 0; i < loops; i++) {
         for (j = 0; j < 50000; j++) {
-            /* Empty loop */
         }
     }
 }
@@ -54,15 +52,12 @@ static void load_modules(void)
 
     scr_printf("Loading IOP modules...\n");
 
-    /* Load SIO2MAN */
     ret = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, NULL, NULL);
     scr_printf("  SIO2MAN: %s\n", ret >= 0 ? "OK" : "FAILED");
 
-    /* Load PADMAN */
     ret = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, NULL, NULL);
     scr_printf("  PADMAN: %s\n", ret >= 0 ? "OK" : "FAILED");
 
-    /* Load USB */
     ret = SifExecModuleBuffer(usbd_irx, size_usbd_irx, 0, NULL, NULL);
     scr_printf("  USBD: %s\n", ret >= 0 ? "OK" : "FAILED");
 
@@ -86,18 +81,15 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-    /* Debug screen init FIRST */
     init_scr();
     scr_clear();
     scr_printf("==============================\n");
     scr_printf(" Atari 2600 Emulator for PS2\n");
     scr_printf("==============================\n\n");
 
-    /* PS2 init */
     reset_IOP();
     load_modules();
 
-    /* Init pad AFTER loading modules */
     scr_printf("Initializing controller...\n");
     if (!ui_init()) {
         scr_printf("  FAILED\n");
@@ -106,7 +98,6 @@ int main(int argc, char** argv)
     }
     scr_printf("  OK\n\n");
 
-    /* Test pad */
     scr_printf("Testing controller...\n");
     scr_printf("Press X to continue\n\n");
     
@@ -133,12 +124,10 @@ int main(int argc, char** argv)
         scr_printf("Controller timeout - continuing anyway...\n\n");
     }
 
-    /* Initialize emulator */
     scr_printf("Initializing emulator... ");
     emu_init(&emu);
     scr_printf("OK\n\n");
 
-    /* File browser */
     rom_path = ui_file_browser("mass:/");
     
     if (rom_path == NULL) {
@@ -157,22 +146,51 @@ int main(int argc, char** argv)
     }
     
     scr_printf("OK\n");
-    scr_printf("Size: %lu bytes\n\n", (unsigned long)emu.cart.rom_size);
-
-    scr_printf("Starting emulation...\n");
-    scr_printf("TRIANGLE = Exit\n\n");
+    scr_printf("Size: %lu bytes\n", (unsigned long)emu.cart.rom_size);
+    scr_printf("Type: ");
+    switch(emu.cart.type) {
+        case CART_2K: scr_printf("2K\n"); break;
+        case CART_4K: scr_printf("4K\n"); break;
+        case CART_F8: scr_printf("F8 (8K)\n"); break;
+        case CART_F6: scr_printf("F6 (16K)\n"); break;
+        case CART_F4: scr_printf("F4 (32K)\n"); break;
+        default: scr_printf("Unknown\n"); break;
+    }
     
-    simple_delay(50);
-
+    scr_printf("\nResetting CPU...\n");
     emu_reset(&emu);
+    
+    scr_printf("Reset vector: 0x%04X\n", emu.cpu.PC);
+    scr_printf("First bytes: %02X %02X %02X %02X\n",
+        mem_read(&emu, emu.cpu.PC),
+        mem_read(&emu, emu.cpu.PC + 1),
+        mem_read(&emu, emu.cpu.PC + 2),
+        mem_read(&emu, emu.cpu.PC + 3));
+    
+    scr_printf("\nStarting emulation...\n");
+    scr_printf("SELECT = show debug\n");
+    scr_printf("START = reset\n");
+    scr_printf("TRIANGLE = exit\n\n");
+    
+    simple_delay(100);
+
+    int debug_counter = 0;
 
     while (emu.running) {
         ui_handle_input(&emu);
 
         if (emu.switch_reset) {
+            scr_printf("RESET!\n");
             emu_reset(&emu);
             emu.switch_reset = 0;
         }
+
+        if (emu.switch_select && (debug_counter % 60 == 0)) {
+            scr_printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X Scan:%d\n",
+                emu.cpu.PC, emu.cpu.A, emu.cpu.X, emu.cpu.Y, 
+                emu.cpu.P, emu.cpu.SP, emu.tia.scanline);
+        }
+        debug_counter++;
 
         emu_run_frame(&emu);
         ui_render_frame(&emu);
