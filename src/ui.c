@@ -98,16 +98,16 @@ void ui_handle_input(EmulatorState* emu)
     
     if (btns == 0xFFFF) return;
 
-    emu->joy0_up    = !(btns & PAD_UP);
-    emu->joy0_down  = !(btns & PAD_DOWN);
-    emu->joy0_left  = !(btns & PAD_LEFT);
-    emu->joy0_right = !(btns & PAD_RIGHT);
-    emu->joy0_fire  = !(btns & PAD_CROSS);
+    emu->joy0_up    = (btns & PAD_UP) == 0;
+    emu->joy0_down  = (btns & PAD_DOWN) == 0;
+    emu->joy0_left  = (btns & PAD_LEFT) == 0;
+    emu->joy0_right = (btns & PAD_RIGHT) == 0;
+    emu->joy0_fire  = (btns & PAD_CROSS) == 0;
 
-    emu->switch_reset  = !(btns & PAD_START);
-    emu->switch_select = !(btns & PAD_SELECT);
+    emu->switch_reset  = (btns & PAD_START) == 0;
+    emu->switch_select = (btns & PAD_SELECT) == 0;
 
-    if (!(btns & PAD_TRIANGLE)) {
+    if ((btns & PAD_TRIANGLE) == 0) {
         emu->running = 0;
     }
 }
@@ -158,28 +158,35 @@ char* ui_file_browser(const char* start_path)
     };
     
     for (i = 0; try_files[i] != NULL; i++) {
-        scr_printf("  Trying: %s ... ", try_files[i]);
+        scr_printf("  %s ... ", try_files[i]);
         
         if (file_exists(try_files[i])) {
             scr_printf("FOUND!\n\n");
             
             strcpy(selected_file, try_files[i]);
             
-            scr_printf("ROM found: %s\n\n", selected_file);
+            scr_printf("ROM: %s\n\n", selected_file);
             scr_printf("Press X to load\n");
             scr_printf("Press TRIANGLE to cancel\n");
             
-            /* Wait for button */
+            /* Wait a bit for any previous button to release */
+            simple_delay(50);
+            
+            /* Wait for button press */
             while (1) {
                 uint16_t btns = read_pad();
                 
-                if (!(btns & PAD_CROSS)) {
-                    while (!(read_pad() & PAD_CROSS)) simple_delay(1);
+                /* X pressed (bit is 0 when pressed) */
+                if ((btns & PAD_CROSS) == 0) {
+                    scr_printf("\nLoading...\n");
+                    simple_delay(20);
                     return selected_file;
                 }
                 
-                if (!(btns & PAD_TRIANGLE)) {
-                    while (!(read_pad() & PAD_TRIANGLE)) simple_delay(1);
+                /* Triangle pressed */
+                if ((btns & PAD_TRIANGLE) == 0) {
+                    scr_printf("\nCancelled.\n");
+                    simple_delay(20);
                     return NULL;
                 }
                 
