@@ -26,30 +26,30 @@ all: $(EE_BIN)
 clean:
 	rm -f $(EE_OBJS) src/*.o $(EE_BIN) *_irx.c *_irx.o
 
-# Generate C source from IRX, then compile
-sio2man_irx.c: $(PS2SDK)/iop/irx/sio2man.irx
-	bin2c $< $@ sio2man_irx
-
-padman_irx.c: $(PS2SDK)/iop/irx/padman.irx
-	bin2c $< $@ padman_irx
-
-usbd_irx.c: $(PS2SDK)/iop/irx/usbd.irx
-	bin2c $< $@ usbd_irx
-
-usbhdfsd_irx.c: $(PS2SDK)/iop/irx/usbhdfsd.irx
-	bin2c $< $@ usbhdfsd_irx
+# IRX modules
+sio2man_irx.c:
+	bin2c $(PS2SDK)/iop/irx/sio2man.irx sio2man_irx.c sio2man_irx
 
 sio2man_irx.o: sio2man_irx.c
-	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
+	$(EE_CC) $(EE_CFLAGS) -c sio2man_irx.c -o sio2man_irx.o
+
+padman_irx.c:
+	bin2c $(PS2SDK)/iop/irx/padman.irx padman_irx.c padman_irx
 
 padman_irx.o: padman_irx.c
-	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
+	$(EE_CC) $(EE_CFLAGS) -c padman_irx.c -o padman_irx.o
+
+usbd_irx.c:
+	bin2c $(PS2SDK)/iop/irx/usbd.irx usbd_irx.c usbd_irx
 
 usbd_irx.o: usbd_irx.c
-	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
+	$(EE_CC) $(EE_CFLAGS) -c usbd_irx.c -o usbd_irx.o
+
+usbhdfsd_irx.c:
+	bin2c $(PS2SDK)/iop/irx/usbhdfsd.irx usbhdfsd_irx.c usbhdfsd_irx
 
 usbhdfsd_irx.o: usbhdfsd_irx.c
-	$(EE_CC) $(EE_CFLAGS) -c $< -o $@
+	$(EE_CC) $(EE_CFLAGS) -c usbhdfsd_irx.c -o usbhdfsd_irx.o
 
 include $(PS2SDK)/samples/Makefile.pref
 include $(PS2SDK)/samples/Makefile.eeglobal
