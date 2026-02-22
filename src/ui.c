@@ -16,7 +16,6 @@ static char padBuf[256] __attribute__((aligned(64)));
 static int frame_count = 0;
 static int pad_initialized = 0;
 
-/* Graphics */
 static GSGLOBAL* gsGlobal = NULL;
 static GSTEXTURE texture;
 static int gfx_initialized = 0;
@@ -28,7 +27,6 @@ static void simple_delay(int loops)
     volatile int i, j;
     for (i = 0; i < loops; i++) {
         for (j = 0; j < 50000; j++) {
-            /* Empty loop */
         }
     }
 }
@@ -69,7 +67,6 @@ static int file_exists(const char* path)
 
 int ui_init(void)
 {
-    /* Init pad */
     padInit(0);
     if (padPortOpen(0, 0, padBuf) == 0) {
         scr_printf("Warning: padPortOpen failed\n");
@@ -84,8 +81,6 @@ int ui_init(void)
     }
     
     pad_initialized = 1;
-    
-    /* Init graphics AFTER selecting ROM */
     gfx_initialized = 0;
     
     return 1;
@@ -96,13 +91,13 @@ static int init_graphics(void)
     if (gfx_initialized) return 1;
     
     scr_printf("\nInitializing graphics...\n");
+    scr_printf("Screen will switch in 2 seconds...\n");
+    simple_delay(100);
     
-    /* DMA init */
     dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC,
                 D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
     dmaKit_chan_init(DMA_CHANNEL_GIF);
     
-    /* GS init */
     gsGlobal = gsKit_init_global();
     if (!gsGlobal) {
         scr_printf("ERROR: gsKit_init_global failed\n");
@@ -116,9 +111,13 @@ static int init_graphics(void)
     gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
     
     gsKit_init_screen(gsGlobal);
+    
+    gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x00, 0x00));
+    gsKit_sync_flip(gsGlobal);
+    gsKit_queue_exec(gsGlobal);
+    
     gsKit_mode_switch(gsGlobal, GS_ONESHOT);
     
-    /* Texture for Atari 2600 framebuffer (160x192) */
     texture.Width = 160;
     texture.Height = 192;
     texture.PSM = GS_PSM_CT32;
@@ -129,14 +128,13 @@ static int init_graphics(void)
         return 0;
     }
     
+    memset(texture.Mem, 0, 160 * 192 * 4);
+    
     texture.Vram = gsKit_vram_alloc(gsGlobal, 
         gsKit_texture_size(160, 192, GS_PSM_CT32), 
         GSKIT_ALLOC_USERBUFFER);
     
     texture.Filter = GS_FILTER_NEAREST;
-    
-    scr_printf("Graphics OK!\n");
-    scr_printf("Starting game...\n\n");
     
     gfx_initialized = 1;
     
@@ -160,7 +158,6 @@ void ui_shutdown(void)
 void ui_render_frame(EmulatorState* emu)
 {
     if (!gfx_initialized) {
-        /* Initialize graphics on first render */
         if (!init_graphics()) {
             scr_printf("Graphics init failed!\n");
             emu->running = 0;
@@ -168,21 +165,19 @@ void ui_render_frame(EmulatorState* emu)
         }
     }
     
-    /* Copy framebuffer to texture */
-    memcpy(texture.Mem, emu->framebuffer, 160 * 192 * 4);
+    if (texture.Mem && emu->framebuffer) {
+        memcpy(texture.Mem, emu->framebuffer, 160 * 192 * 4);
+    }
     
-    /* Upload to VRAM */
     gsKit_TexManager_invalidate(gsGlobal, &texture);
     
-    /* Clear screen */
-    gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x00, 0x00));
+    /* Dark blue background to verify GS is working */
+    gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x40, 0x00, 0x00));
     
-    /* Calculate centered position with integer scaling */
     float scale_x = (float)gsGlobal->Width / 160.0f;
     float scale_y = (float)gsGlobal->Height / 192.0f;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
     
-    /* Use integer scaling for crisp pixels */
     scale = (int)scale;
     if (scale < 1) scale = 1;
     
@@ -191,16 +186,21 @@ void ui_render_frame(EmulatorState* emu)
     float x = ((float)gsGlobal->Width - w) / 2.0f;
     float y = ((float)gsGlobal->Height - h) / 2.0f;
     
-    /* Draw texture */
+    /* White border for visibility */
+    gsKit_prim_sprite(gsGlobal, 
+        x - 2.0f, y - 2.0f, 
+        x + w + 2.0f, y + h + 2.0f, 
+        1, 
+        GS_SETREG_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x00));
+    
     gsKit_prim_sprite_texture(gsGlobal, &texture,
-        x, y,           /* top-left */
-        0.0f, 0.0f,     /* UV start */
-        x + w, y + h,   /* bottom-right */
-        160.0f, 192.0f, /* UV end */
-        2,              /* z */
+        x, y,           
+        0.0f, 0.0f,     
+        x + w, y + h,   
+        160.0f, 192.0f, 
+        2,              
         GS_SETREG_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x00));
     
-    /* Flip */
     gsKit_sync_flip(gsGlobal);
     gsKit_queue_exec(gsGlobal);
     
@@ -236,7 +236,6 @@ char* ui_file_browser(const char* start_path)
     
     scr_printf("Searching for ROM file...\n\n");
     
-    /* First test if USB is accessible */
     scr_printf("Testing USB access...\n");
     FILE* test = fopen("mass:/", "rb");
     if (test) {
@@ -259,16 +258,14 @@ char* ui_file_browser(const char* start_path)
     const char* try_files[] = {
         "mass:/game.bin",
         "mass:/game.a26",
+        "mass:/combat.bin",
         "mass:/GAME.BIN",
         "mass:/GAME.A26",
         "mass:/ROMS/game.bin",
         "mass:/ROMS/game.a26",
-        "mass:/ROMS/GAME.BIN",
-        "mass:/ROMS/GAME.A26",
+        "mass:/ROMS/combat.bin",
         "mass0:/game.bin",
         "mass0:/game.a26",
-        "mass0:/ROMS/game.bin",
-        "mass0:/ROMS/game.a26",
         NULL
     };
     
@@ -289,15 +286,13 @@ char* ui_file_browser(const char* start_path)
         }
     }
     
-    scr_printf("\n");
-    scr_printf("ROM NOT FOUND!\n");
+    scr_printf("\nROM NOT FOUND!\n");
     scr_printf("Put game.bin on USB root\n");
     
     return NULL;
 }
 
 #else
-/* PC Stub */
 int ui_init(void) { return 1; }
 void ui_shutdown(void) {}
 void ui_render_frame(EmulatorState* emu) { (void)emu; }
