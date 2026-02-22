@@ -1,29 +1,45 @@
 # Makefile per haunted2600-ps2
-# Richiede ps2dev toolchain installata (ps2sdk)
+
+EE_PREFIX = mips64r5900el-ps2-elf
+EE_CC     = $(EE_PREFIX)-gcc
+EE_SIZE   = $(EE_PREFIX)-size
+EE_OBJCOPY= $(EE_PREFIX)-objcopy
+
+PS2DEV   ?= /usr/local/ps2dev
+PS2SDK   ?= $(PS2DEV)/ps2sdk
 
 EE_BIN   = haunted2600.elf
 EE_OBJS  = src/main.o src/cpu6507.o src/tia.o src/pia.o src/bus.o
-
-# Librerie ps2sdk
-EE_LIBS  = -lpad -lgraph -ldraw -ldraw3d -lpacket -ldma \
-           -lfileXio -lloadfile -lsifrpc -lkernel \
-           -lc -lm
 
 EE_INCS  = -I$(PS2SDK)/ee/include \
            -I$(PS2SDK)/common/include \
            -I$(PS2SDK)/ports/include \
            -Isrc
 
-EE_CFLAGS = -O2 -Wall -Wextra -G0
+EE_CFLAGS = -O2 -Wall -G0 -mno-gpopt \
+            -march=r5900 -mabi=eabi \
+            -fno-common \
+            $(EE_INCS)
 
-# Definisce NTSC
-EE_CFLAGS += -DNTSC
+EE_LDFLAGS = -L$(PS2SDK)/ee/lib \
+             -L$(PS2SDK)/ports/lib \
+             -T$(PS2SDK)/ee/startup/linkfile \
+             -mno-gpopt -march=r5900 -mabi=eabi
 
-# Link con ps2 startup
-EE_LDFLAGS = -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib
+EE_LIBS  = -lpad -lgraph -ldraw -ldraw3d -lpacket -ldma \
+           -lfileXio -lloadfile -lsifrpc -lkernel \
+           -lc -lm
 
-include $(PS2SDK)/samples/Makefile.pref
-include $(PS2SDK)/samples/Makefile.eeglobal
+EE_STARTUP = $(PS2SDK)/ee/startup/crt0.o
+
+all: $(EE_BIN)
+
+$(EE_BIN): $(EE_OBJS)
+	$(EE_CC) $(EE_LDFLAGS) -o $@ $(EE_STARTUP) $(EE_OBJS) $(EE_LIBS)
+	$(EE_SIZE) $@
+
+src/%.o: src/%.c
+	$(EE_CC) $(EE_CFLAGS) -c -o $@ $<
 
 clean:
 	rm -f $(EE_OBJS) $(EE_BIN)
