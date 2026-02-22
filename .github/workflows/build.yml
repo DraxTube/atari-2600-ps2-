@@ -10,64 +10,56 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     container:
       image: ps2dev/ps2dev:latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Install dependencies
       run: |
-        apk add --no-cache make git bash
-    
-    - name: Setup PS2DEV environment
-      run: |
-        echo "PS2SDK=/usr/local/ps2dev/ps2sdk" >> $GITHUB_ENV
-        echo "GSKIT=/usr/local/ps2dev/gsKit" >> $GITHUB_ENV
-        echo "/usr/local/ps2dev/bin" >> $GITHUB_PATH
-        echo "/usr/local/ps2dev/ee/bin" >> $GITHUB_PATH
-        echo "/usr/local/ps2dev/iop/bin" >> $GITHUB_PATH
-    
+        apk add --no-cache make git bash zip
+        apk add --no-cache gmp-dev mpfr-dev mpc1-dev
+
     - name: Verify toolchain
-      run: |
-        which ee-gcc || echo "ee-gcc not found"
-        ls -la /usr/local/ps2dev/ || echo "ps2dev dir not found"
-    
-    - name: Compile emulator
       run: |
         export PS2SDK=/usr/local/ps2dev/ps2sdk
         export GSKIT=/usr/local/ps2dev/gsKit
-        export PATH=$PATH:/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin
+        export PATH="/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin:$PATH"
+        echo "--- Checking ee-gcc ---"
+        ee-gcc --version || mips64r5900el-ps2-elf-gcc --version
+        echo "--- Checking PS2SDK ---"
+        ls $PS2SDK/ee/lib/ | head -20
+        echo "--- Checking gsKit ---"
+        ls $GSKIT/lib/ 2>/dev/null || echo "gsKit not at GSKIT path"
+        echo "--- Checking shared libs ---"
+        ls /usr/lib/libgmp* /usr/lib/libmpfr* /usr/lib/libmpc* 2>/dev/null || true
+        find / -name "libmpc.so*" 2>/dev/null || true
+        find / -name "libmpfr.so*" 2>/dev/null || true
+        find / -name "libgmp.so*" 2>/dev/null || true
+
+    - name: Build emulator
+      run: |
+        export PS2SDK=/usr/local/ps2dev/ps2sdk
+        export GSKIT=/usr/local/ps2dev/gsKit
+        export PATH="/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin:$PATH"
+        export LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH"
         make clean
-        make -j$(nproc)
-    
-    - name: Create release package
+        make
+
+    - name: Package release
       run: |
         mkdir -p release
         cp atari2600.elf release/
-        echo "# Atari 2600 Emulator for PS2" > release/README.txt
-        echo "" >> release/README.txt
-        echo "Copy ROMs to mass:/ROMS/ on your USB drive" >> release/README.txt
-        echo "" >> release/README.txt
-        echo "Controls:" >> release/README.txt
-        echo "- D-PAD: Joystick" >> release/README.txt
-        echo "- X: Fire" >> release/README.txt
-        echo "- SELECT: Reset" >> release/README.txt
-        echo "- START: Exit" >> release/README.txt
-    
-    - name: Upload build artifact
+        cp README.md release/ 2>/dev/null || true
+        echo "Build completed: $(date)" > release/BUILD_INFO.txt
+
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: atari2600-ps2-emulator
+        name: atari2600-ps2
         path: release/
         retention-days: 90
         if-no-files-found: error
-    
-    - name: Upload ELF only
-      uses: actions/upload-artifact@v4
-      with:
-        name: atari2600.elf
-        path: atari2600.elf
-        retention-days: 90
