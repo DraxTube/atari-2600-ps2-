@@ -13,13 +13,16 @@
 #include <iopcontrol.h>
 #include <iopheap.h>
 #include <debug.h>
-#include <libmc.h>
 
 /* External IRX modules */
 extern unsigned char usbd_irx[];
 extern unsigned int size_usbd_irx;
 extern unsigned char usbhdfsd_irx[];
 extern unsigned int size_usbhdfsd_irx;
+extern unsigned char sio2man_irx[];
+extern unsigned int size_sio2man_irx;
+extern unsigned char padman_irx[];
+extern unsigned int size_padman_irx;
 
 static void simple_delay(int loops)
 {
@@ -51,19 +54,20 @@ static void load_modules(void)
 
     scr_printf("Loading IOP modules...\n");
 
-    ret = SifLoadModule("rom0:SIO2MAN", 0, NULL);
+    /* Load SIO2MAN */
+    ret = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, NULL, NULL);
     scr_printf("  SIO2MAN: %s\n", ret >= 0 ? "OK" : "FAILED");
 
-    ret = SifLoadModule("rom0:PADMAN", 0, NULL);
+    /* Load PADMAN */
+    ret = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, NULL, NULL);
     scr_printf("  PADMAN: %s\n", ret >= 0 ? "OK" : "FAILED");
 
-    scr_printf("  USBD: ");
+    /* Load USB */
     ret = SifExecModuleBuffer(usbd_irx, size_usbd_irx, 0, NULL, NULL);
-    scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
+    scr_printf("  USBD: %s\n", ret >= 0 ? "OK" : "FAILED");
 
-    scr_printf("  USBHDFSD: ");
     ret = SifExecModuleBuffer(usbhdfsd_irx, size_usbhdfsd_irx, 0, NULL, NULL);
-    scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
+    scr_printf("  USBHDFSD: %s\n", ret >= 0 ? "OK" : "FAILED");
 
     scr_printf("\nWaiting for USB");
     int i;
@@ -93,24 +97,48 @@ int main(int argc, char** argv)
     reset_IOP();
     load_modules();
 
-    /* Initialize emulator */
-    scr_printf("Initializing emulator... ");
-    emu_init(&emu);
-    scr_printf("OK\n");
-
-    /* Init UI */
-    scr_printf("Initializing controls... ");
+    /* Init pad AFTER loading modules */
+    scr_printf("Initializing controller...\n");
     if (!ui_init()) {
-        scr_printf("FAILED\n");
+        scr_printf("  FAILED\n");
         SleepThread();
         return 1;
     }
+    scr_printf("  OK\n\n");
+
+    /* Test pad */
+    scr_printf("Testing controller...\n");
+    scr_printf("Press X to continue\n\n");
+    
+    int timeout = 500;
+    while (timeout > 0) {
+        struct padButtonStatus buttons;
+        int state = padGetState(0, 0);
+        
+        if (state == PAD_STATE_STABLE || state == PAD_STATE_FINDCTP1) {
+            if (padRead(0, 0, &buttons) != 0) {
+                if ((buttons.btns & PAD_CROSS) == 0) {
+                    scr_printf("X pressed! Controller OK.\n\n");
+                    simple_delay(30);
+                    break;
+                }
+            }
+        }
+        
+        simple_delay(1);
+        timeout--;
+    }
+    
+    if (timeout <= 0) {
+        scr_printf("Controller timeout - continuing anyway...\n\n");
+    }
+
+    /* Initialize emulator */
+    scr_printf("Initializing emulator... ");
+    emu_init(&emu);
     scr_printf("OK\n\n");
 
     /* File browser */
-    scr_printf("Opening file browser...\n\n");
-    simple_delay(50);
-    
     rom_path = ui_file_browser("mass:/");
     
     if (rom_path == NULL) {
@@ -124,7 +152,6 @@ int main(int argc, char** argv)
     
     if (!cart_load(&emu, rom_path)) {
         scr_printf("FAILED\n");
-        scr_printf("Cannot load ROM file.\n");
         SleepThread();
         return 1;
     }
@@ -133,9 +160,9 @@ int main(int argc, char** argv)
     scr_printf("Size: %lu bytes\n\n", (unsigned long)emu.cart.rom_size);
 
     scr_printf("Starting emulation...\n");
-    scr_printf("Press TRIANGLE to exit\n\n");
+    scr_printf("TRIANGLE = Exit\n\n");
     
-    simple_delay(100);
+    simple_delay(50);
 
     emu_reset(&emu);
 
