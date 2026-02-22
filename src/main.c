@@ -1,117 +1,140 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include "emulator.h"
+#include "cartridge.h"
 #include "ui.h"
+#include <stdio.h>
+#include <string.h>
 
 #ifdef _EE
 #include <kernel.h>
+#include <sifrpc.h>
 #include <loadfile.h>
 #include <sbv_patches.h>
-#include <iopcontrol.h>
-#include <sifrpc.h>
 #include <libpad.h>
-#include <fileXio_rpc.h>
+#include <iopcontrol.h>
 
-#define IRX_DEFINE(mod) \
-    extern unsigned char mod##_irx[]; \
-    extern unsigned int size_##mod##_irx
-
-IRX_DEFINE(iomanX);
-IRX_DEFINE(fileXio);
-IRX_DEFINE(sio2man);
-IRX_DEFINE(padman);
-IRX_DEFINE(usbd);
-IRX_DEFINE(usbhdfsd);
-
-void load_modules(void) {
-    int ret;
-    
-    SifExecModuleBuffer(iomanX_irx, size_iomanX_irx, 0, NULL, &ret);
-    SifExecModuleBuffer(fileXio_irx, size_fileXio_irx, 0, NULL, &ret);
-    SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, NULL, &ret);
-    SifExecModuleBuffer(padman_irx, size_padman_irx, 0, NULL, &ret);
-    SifExecModuleBuffer(usbd_irx, size_usbd_irx, 0, NULL, &ret);
-    SifExecModuleBuffer(usbhdfsd_irx, size_usbhdfsd_irx, 0, NULL, &ret);
-    
-    fileXioInit();
+static void wait_vsync(void)
+{
+    /* Simple delay to ~60fps */
+    int i;
+    for (i = 0; i < 10000; i++) asm volatile("nop");
 }
 
-int main(int argc, char** argv) {
+static void load_irx_modules(void)
+{
+    int ret;
+
+    /* Try loading from rom/builtin first, then from files */
+    SifLoadModule("rom0:SIO2MAN", 0, NULL);
+    SifLoadModule("rom0:PADMAN", 0, NULL);
+
+    ret = SifLoadModule("mass:/SYSTEM/USBD.IRX", 0, NULL);
+    if (ret < 0) {
+        SifLoadModule("rom0:USBD", 0, NULL);
+    }
+
+    ret = SifLoadModule("mass:/SYSTEM/USBHDFSD.IRX", 0, NULL);
+    if (ret < 0) {
+        /* Try alternate paths */
+        SifLoadModule("mc0:/BOOT/USBD.IRX", 0, NULL);
+        SifLoadModule("mc0:/BOOT/USBHDFSD.IRX", 0, NULL);
+    }
+}
+
+int main(int argc, char** argv)
+{
+    EmulatorState emu;
+    char* rom_path;
+
+    (void)argc;
+    (void)argv;
+
+    /* PS2 init */
     SifInitRpc(0);
     sbv_patch_enable_lmb();
     sbv_patch_disable_prefix_check();
-    
-    load_modules();
-    
-    // Aspetta che USB sia pronto
+
+    load_irx_modules();
+
+    /* Wait for USB */
     int i;
-    for (i = 0; i < 50; i++) {
-        if (fileXioMount("mass:", "mass0:", 0) >= 0) break;
-        nopdelay(1000000);
+    for (i = 0; i < 100; i++) {
+        FILE* test = fopen("mass:/", "r");
+        if (test) {
+            fclose(test);
+            break;
+        }
+        /* Small delay */
+        int j;
+        for (j = 0; j < 500000; j++) asm volatile("nop");
     }
-    
+
     if (!ui_init()) {
         return 1;
     }
-    
-    emu_init();
-    
-    // File browser
-    char* rom_path = ui_file_browser("mass:/ROMS");
+
+    emu_init(&emu);
+
+    /* Try file browser */
+    rom_path = ui_file_browser("mass:/ROMS");
     if (!rom_path) {
-        rom_path = "mass:/ROMS/game.bin"; // Default
+        /* Try default */
+        rom_path = "mass:/ROMS/game.bin";
     }
-    
-    if (!cart_load(rom_path)) {
-        printf("Failed to load ROM\n");
+
+    if (!cart_load(&emu, rom_path)) {
         ui_shutdown();
         return 1;
     }
-    
-    emu_reset();
-    
-    while (emu_state.running) {
-        ui_handle_input();
-        emu_run_frame();
-        ui_render_frame();
+
+    emu_reset(&emu);
+
+    while (emu.running) {
+        ui_handle_input(&emu);
+
+        if (emu.switch_reset) {
+            emu_reset(&emu);
+            emu.switch_reset = 0;
+        }
+
+        emu_run_frame(&emu);
+        ui_render_frame(&emu);
     }
-    
-    emu_shutdown();
+
+    emu_shutdown(&emu);
     ui_shutdown();
-    
+
     return 0;
 }
 
 #else
-// Versione PC
-int main(int argc, char** argv) {
+/* PC version for testing */
+int main(int argc, char** argv)
+{
+    EmulatorState emu;
+
     if (argc < 2) {
-        printf("Usage: %s <rom_file>\n", argv[0]);
+        printf("Usage: %s <rom.bin>\n", argv[0]);
         return 1;
     }
-    
-    if (!ui_init()) {
-        return 1;
-    }
-    
-    emu_init();
-    
-    if (!cart_load(argv[1])) {
+
+    emu_init(&emu);
+
+    if (!cart_load(&emu, argv[1])) {
         printf("Failed to load ROM: %s\n", argv[1]);
         return 1;
     }
-    
-    emu_reset();
-    
-    while (emu_state.running) {
-        ui_handle_input();
-        emu_run_frame();
-        ui_render_frame();
+
+    emu_reset(&emu);
+
+    /* Run a few frames for testing */
+    int frame;
+    for (frame = 0; frame < 300 && emu.running; frame++) {
+        emu_run_frame(&emu);
     }
-    
-    emu_shutdown();
-    ui_shutdown();
-    
+
+    printf("Ran %d frames OK\n", frame);
+
+    emu_shutdown(&emu);
     return 0;
 }
 #endif
