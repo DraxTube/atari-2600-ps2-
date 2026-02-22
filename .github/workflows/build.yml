@@ -1,0 +1,78 @@
+name: Build haunted2600-ps2
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compile ELF per PlayStation 2
+    runs-on: ubuntu-latest
+
+    # Usiamo l'immagine Docker ufficiale ps2dev
+    # che contiene già il toolchain ee-gcc e ps2sdk precompilati
+    container:
+      image: ps2dev/ps2dev:latest
+
+    steps:
+      # ── 1. Checkout sorgenti ────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Verifica toolchain ───────────────────────────────────────────────
+      - name: Verifica toolchain ps2dev
+        run: |
+          echo "=== PS2SDK path ==="
+          echo $PS2SDK
+          ls $PS2SDK/ee/include | head -20
+          ee-gcc --version
+
+      # ── 3. Build ────────────────────────────────────────────────────────────
+      - name: Compila ELF
+        run: |
+          make -j$(nproc)
+
+      # ── 4. Verifica output ──────────────────────────────────────────────────
+      - name: Verifica ELF generato
+        run: |
+          ls -lh haunted2600.elf
+          ee-readelf -h haunted2600.elf | head -20
+          echo "=== Dimensione sezioni ==="
+          ee-size haunted2600.elf
+
+      # ── 5. Upload artifact ──────────────────────────────────────────────────
+      - name: Upload ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: haunted2600-ps2-elf
+          path: haunted2600.elf
+          retention-days: 30
+
+      # ── 6. (Opzionale) Crea release se è un tag ────────────────────────────
+      - name: Crea release GitHub
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: haunted2600.elf
+          name: haunted2600-ps2 ${{ github.ref_name }}
+          body: |
+            ## Haunted House Atari 2600 Emulator per PS2
+
+            ### Come usare
+            1. Copia `haunted2600.elf` su USB o masterizza su DVD
+            2. Crea la cartella `roms/` sul device
+            3. Copia la ROM di Haunted House come `haunted_house.bin` (2KB o 4KB)
+            4. Avvia con FreeMCBoot, OPL, o ps2link
+
+            ### Controlli
+            | PS2 | Atari |
+            |-----|-------|
+            | D-Pad | Joystick |
+            | ✕ (Croce) | Fuoco |
+            | START | Reset |
+            | SELECT | Select |
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
