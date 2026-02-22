@@ -2,9 +2,10 @@ name: Build PS2 Atari 2600 Emulator
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,21 +15,59 @@ jobs:
       image: ps2dev/ps2dev:latest
     
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
     
     - name: Install dependencies
       run: |
-        apk add make git
+        apk add --no-cache make git bash
     
-    - name: Compile
+    - name: Setup PS2DEV environment
+      run: |
+        echo "PS2SDK=/usr/local/ps2dev/ps2sdk" >> $GITHUB_ENV
+        echo "GSKIT=/usr/local/ps2dev/gsKit" >> $GITHUB_ENV
+        echo "/usr/local/ps2dev/bin" >> $GITHUB_PATH
+        echo "/usr/local/ps2dev/ee/bin" >> $GITHUB_PATH
+        echo "/usr/local/ps2dev/iop/bin" >> $GITHUB_PATH
+    
+    - name: Verify toolchain
+      run: |
+        which ee-gcc || echo "ee-gcc not found"
+        ls -la /usr/local/ps2dev/ || echo "ps2dev dir not found"
+    
+    - name: Compile emulator
       run: |
         export PS2SDK=/usr/local/ps2dev/ps2sdk
         export GSKIT=/usr/local/ps2dev/gsKit
         export PATH=$PATH:/usr/local/ps2dev/bin:/usr/local/ps2dev/ee/bin:/usr/local/ps2dev/iop/bin
-        make
+        make clean
+        make -j$(nproc)
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v3
+    - name: Create release package
+      run: |
+        mkdir -p release
+        cp atari2600.elf release/
+        echo "# Atari 2600 Emulator for PS2" > release/README.txt
+        echo "" >> release/README.txt
+        echo "Copy ROMs to mass:/ROMS/ on your USB drive" >> release/README.txt
+        echo "" >> release/README.txt
+        echo "Controls:" >> release/README.txt
+        echo "- D-PAD: Joystick" >> release/README.txt
+        echo "- X: Fire" >> release/README.txt
+        echo "- SELECT: Reset" >> release/README.txt
+        echo "- START: Exit" >> release/README.txt
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: atari2600-ps2
+        name: atari2600-ps2-emulator
+        path: release/
+        retention-days: 90
+        if-no-files-found: error
+    
+    - name: Upload ELF only
+      uses: actions/upload-artifact@v4
+      with:
+        name: atari2600.elf
         path: atari2600.elf
+        retention-days: 90
