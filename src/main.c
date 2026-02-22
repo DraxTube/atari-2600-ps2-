@@ -14,15 +14,16 @@
 #include <iopheap.h>
 #include <debug.h>
 
-/* Embedded IRX modules */
-extern unsigned char sio2man_irx[];
-extern unsigned int size_sio2man_irx;
-extern unsigned char padman_irx[];
-extern unsigned int size_padman_irx;
+/* External IRX modules - will be embedded in ELF */
+extern unsigned char usbd_irx[];
+extern unsigned int size_usbd_irx;
+extern unsigned char usbhdfsd_irx[];
+extern unsigned int size_usbhdfsd_irx;
 
 static void reset_IOP(void)
 {
     SifInitRpc(0);
+    scr_printf("Resetting IOP...\n");
     while (!SifIopReset("", 0)) {};
     while (!SifIopSync()) {};
     SifInitRpc(0);
@@ -30,89 +31,145 @@ static void reset_IOP(void)
     SifInitIopHeap();
     sbv_patch_enable_lmb();
     sbv_patch_disable_prefix_check();
+    scr_printf("IOP reset complete.\n\n");
 }
 
 static void load_modules(void)
 {
     int ret;
 
-    /* Load from ROM first */
+    scr_printf("Loading IOP modules...\n");
+
+    /* SIO2MAN and PADMAN from ROM */
     ret = SifLoadModule("rom0:SIO2MAN", 0, NULL);
-    if (ret < 0) {
-        scr_printf("Warning: Failed to load SIO2MAN from ROM\n");
-    }
+    scr_printf("  SIO2MAN: %s\n", ret >= 0 ? "OK" : "FAILED");
 
     ret = SifLoadModule("rom0:PADMAN", 0, NULL);
-    if (ret < 0) {
-        scr_printf("Warning: Failed to load PADMAN from ROM\n");
+    scr_printf("  PADMAN: %s\n", ret >= 0 ? "OK" : "FAILED");
+
+    /* Load USB modules embedded in ELF */
+    scr_printf("  USBD: ");
+    ret = SifExecModuleBuffer(usbd_irx, size_usbd_irx, 0, NULL, NULL);
+    scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
+
+    scr_printf("  USBHDFSD: ");
+    ret = SifExecModuleBuffer(usbhdfsd_irx, size_usbhdfsd_irx, 0, NULL, NULL);
+    scr_printf("%s\n", ret >= 0 ? "OK" : "FAILED");
+
+    /* Wait for USB to initialize */
+    scr_printf("\nWaiting for USB...\n");
+    int i;
+    for (i = 0; i < 100; i++) {
+        nopdelay(100000);
+        
+        FILE* test = fopen("mass:/", "rb");
+        if (test) {
+            fclose(test);
+            scr_printf("USB ready!\n\n");
+            return;
+        }
     }
+    
+    scr_printf("WARNING: USB timeout\n\n");
 }
 
 int main(int argc, char** argv)
 {
     EmulatorState emu;
     const char* rom_path = NULL;
+    int rom_loaded = 0;
 
     (void)argc;
     (void)argv;
+
+    /* Debug screen init FIRST */
+    init_scr();
+    scr_clear();
+    scr_printf("==============================\n");
+    scr_printf(" Atari 2600 Emulator for PS2\n");
+    scr_printf("==============================\n\n");
 
     /* PS2 init */
     reset_IOP();
     load_modules();
 
-    /* Debug screen init */
-    init_scr();
-    scr_clear();
-    scr_printf("Atari 2600 Emulator for PS2\n");
-    scr_printf("===========================\n\n");
-
     /* Initialize emulator */
+    scr_printf("Initializing emulator...\n");
     emu_init(&emu);
-    scr_printf("Emulator initialized.\n");
+    scr_printf("  OK\n\n");
 
-    /* Try to init graphics */
-    scr_printf("Initializing graphics...\n");
+    /* Init UI (pad only for now) */
+    scr_printf("Initializing controls...\n");
     if (!ui_init()) {
-        scr_printf("ERROR: Failed to initialize graphics!\n");
-        scr_printf("Press any button to exit.\n");
+        scr_printf("  FAILED\n\n");
+        scr_printf("Cannot continue.\n");
         SleepThread();
         return 1;
     }
-    scr_printf("Graphics OK.\n");
+    scr_printf("  OK\n\n");
 
-    /* For now, try a hardcoded ROM path for testing */
-    rom_path = "mass:/ROMS/game.bin";
-    
-    /* Also try host: path for PCSX2 */
-    if (argc > 1) {
-        rom_path = argv[1];
+    /* Try to load ROM from USB */
+    const char* rom_paths[] = {
+        "mass:/ROMS/game.bin",
+        "mass:/game.bin",
+        "mass0:/ROMS/game.bin",
+        "mass0:/game.bin",
+        NULL
+    };
+
+    scr_printf("Searching for ROM...\n");
+    int i;
+    for (i = 0; rom_paths[i] != NULL; i++) {
+        scr_printf("  Trying: %s\n", rom_paths[i]);
+        if (cart_load(&emu, rom_paths[i])) {
+            rom_path = rom_paths[i];
+            rom_loaded = 1;
+            scr_printf("  SUCCESS!\n\n");
+            break;
+        }
     }
 
-    scr_printf("Loading ROM: %s\n", rom_path);
-
-    if (!cart_load(&emu, rom_path)) {
-        scr_printf("ERROR: Failed to load ROM!\n");
-        scr_printf("Make sure ROM exists at: %s\n", rom_path);
-        scr_printf("\nWaiting 5 seconds...\n");
-        
-        /* Wait a bit so user can read the message */
-        int i;
-        for (i = 0; i < 5 * 50; i++) {
-            /* ~50 vsyncs per second */
-            asm volatile("sync.l; ei");
-            asm volatile(
-                "li $v0, 0x1F\n"
-                "syscall\n"
-                ::: "v0"
-            );
-        }
-        
-        ui_shutdown();
+    if (!rom_loaded) {
+        scr_printf("\n");
+        scr_printf("================================\n");
+        scr_printf("ERROR: ROM not found!\n");
+        scr_printf("================================\n");
+        scr_printf("\n");
+        scr_printf("Instructions:\n");
+        scr_printf("1. Format USB as FAT32\n");
+        scr_printf("2. Create folder: ROMS\n");
+        scr_printf("3. Copy Atari 2600 ROM as:\n");
+        scr_printf("   ROMS/game.bin\n");
+        scr_printf("4. Insert USB in PS2\n");
+        scr_printf("5. Restart emulator\n");
+        scr_printf("\n");
+        scr_printf("Press any button to exit...\n");
+        SleepThread();
         return 1;
     }
 
-    scr_printf("ROM loaded successfully!\n");
+    scr_printf("ROM Info:\n");
+    scr_printf("  Path: %s\n", rom_path);
+    scr_printf("  Size: %d bytes\n", emu.cart.rom_size);
+    scr_printf("  Type: ");
+    switch(emu.cart.type) {
+        case CART_2K: scr_printf("2K\n"); break;
+        case CART_4K: scr_printf("4K\n"); break;
+        case CART_F8: scr_printf("F8 (8K)\n"); break;
+        case CART_F6: scr_printf("F6 (16K)\n"); break;
+        case CART_F4: scr_printf("F4 (32K)\n"); break;
+        default: scr_printf("Unknown\n"); break;
+    }
+    scr_printf("\n");
+
     scr_printf("Starting emulation...\n");
+    scr_printf("\n");
+    scr_printf("Controls:\n");
+    scr_printf("  D-Pad    = Joystick\n");
+    scr_printf("  X        = Fire\n");
+    scr_printf("  START    = Reset\n");
+    scr_printf("  TRIANGLE = Exit\n");
+    scr_printf("\n");
 
     emu_reset(&emu);
 
@@ -121,6 +178,7 @@ int main(int argc, char** argv)
         ui_handle_input(&emu);
 
         if (emu.switch_reset) {
+            scr_printf("Reset pressed!\n");
             emu_reset(&emu);
             emu.switch_reset = 0;
         }
@@ -129,43 +187,21 @@ int main(int argc, char** argv)
         ui_render_frame(&emu);
     }
 
+    scr_printf("\n\nEmulation stopped.\n");
+    scr_printf("Shutting down...\n");
+
     emu_shutdown(&emu);
     ui_shutdown();
 
+    scr_printf("Goodbye!\n");
     return 0;
 }
 
 #else
-/* PC version for testing */
-#include <stdio.h>
-
+/* PC stub */
 int main(int argc, char** argv)
 {
-    EmulatorState emu;
-
-    if (argc < 2) {
-        printf("Usage: %s <rom.bin>\n", argv[0]);
-        return 1;
-    }
-
-    emu_init(&emu);
-
-    if (!cart_load(&emu, argv[1])) {
-        printf("Failed to load ROM: %s\n", argv[1]);
-        return 1;
-    }
-
-    emu_reset(&emu);
-
-    /* Run a few frames for testing */
-    int frame;
-    for (frame = 0; frame < 300 && emu.running; frame++) {
-        emu_run_frame(&emu);
-    }
-
-    printf("Ran %d frames OK\n", frame);
-
-    emu_shutdown(&emu);
-    return 0;
+    printf("This is PS2 only.\n");
+    return 1;
 }
 #endif
