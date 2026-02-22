@@ -356,4 +356,21 @@ void tia_tick(EmulatorState* emu, int cpu_cycles)
                 if (m0 && m1) tia->cxppmm |= 0x40;
 
                 emu->framebuffer[y * 160 + x] = color;
-            
+            }
+        }
+
+        /* Advance dot/scanline */
+        tia->dot++;
+        if (tia->dot >= 228) {
+            tia->dot = 0;
+            tia->scanline++;
+            emu->cpu.halted = 0; /* Release WSYNC */
+
+            if (tia->scanline >= 262) {
+                tia->scanline = 0;
+                emu->frame_ready = 1;
+                tia->frame_done = 1;
+            }
+        }
+    }
+}
