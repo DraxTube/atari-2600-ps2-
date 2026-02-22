@@ -11,83 +11,112 @@
 #include <sbv_patches.h>
 #include <libpad.h>
 #include <iopcontrol.h>
+#include <iopheap.h>
+#include <debug.h>
 
-static void wait_vsync(void)
+/* Embedded IRX modules */
+extern unsigned char sio2man_irx[];
+extern unsigned int size_sio2man_irx;
+extern unsigned char padman_irx[];
+extern unsigned int size_padman_irx;
+
+static void reset_IOP(void)
 {
-    /* Simple delay to ~60fps */
-    int i;
-    for (i = 0; i < 10000; i++) asm volatile("nop");
+    SifInitRpc(0);
+    while (!SifIopReset("", 0)) {};
+    while (!SifIopSync()) {};
+    SifInitRpc(0);
+    SifLoadFileInit();
+    SifInitIopHeap();
+    sbv_patch_enable_lmb();
+    sbv_patch_disable_prefix_check();
 }
 
-static void load_irx_modules(void)
+static void load_modules(void)
 {
     int ret;
 
-    /* Try loading from rom/builtin first, then from files */
-    SifLoadModule("rom0:SIO2MAN", 0, NULL);
-    SifLoadModule("rom0:PADMAN", 0, NULL);
-
-    ret = SifLoadModule("mass:/SYSTEM/USBD.IRX", 0, NULL);
+    /* Load from ROM first */
+    ret = SifLoadModule("rom0:SIO2MAN", 0, NULL);
     if (ret < 0) {
-        SifLoadModule("rom0:USBD", 0, NULL);
+        scr_printf("Warning: Failed to load SIO2MAN from ROM\n");
     }
 
-    ret = SifLoadModule("mass:/SYSTEM/USBHDFSD.IRX", 0, NULL);
+    ret = SifLoadModule("rom0:PADMAN", 0, NULL);
     if (ret < 0) {
-        /* Try alternate paths */
-        SifLoadModule("mc0:/BOOT/USBD.IRX", 0, NULL);
-        SifLoadModule("mc0:/BOOT/USBHDFSD.IRX", 0, NULL);
+        scr_printf("Warning: Failed to load PADMAN from ROM\n");
     }
 }
 
 int main(int argc, char** argv)
 {
     EmulatorState emu;
-    char* rom_path;
+    const char* rom_path = NULL;
 
     (void)argc;
     (void)argv;
 
     /* PS2 init */
-    SifInitRpc(0);
-    sbv_patch_enable_lmb();
-    sbv_patch_disable_prefix_check();
+    reset_IOP();
+    load_modules();
 
-    load_irx_modules();
+    /* Debug screen init */
+    init_scr();
+    scr_clear();
+    scr_printf("Atari 2600 Emulator for PS2\n");
+    scr_printf("===========================\n\n");
 
-    /* Wait for USB */
-    int i;
-    for (i = 0; i < 100; i++) {
-        FILE* test = fopen("mass:/", "r");
-        if (test) {
-            fclose(test);
-            break;
-        }
-        /* Small delay */
-        int j;
-        for (j = 0; j < 500000; j++) asm volatile("nop");
-    }
+    /* Initialize emulator */
+    emu_init(&emu);
+    scr_printf("Emulator initialized.\n");
 
+    /* Try to init graphics */
+    scr_printf("Initializing graphics...\n");
     if (!ui_init()) {
+        scr_printf("ERROR: Failed to initialize graphics!\n");
+        scr_printf("Press any button to exit.\n");
+        SleepThread();
         return 1;
     }
+    scr_printf("Graphics OK.\n");
 
-    emu_init(&emu);
-
-    /* Try file browser */
-    rom_path = ui_file_browser("mass:/ROMS");
-    if (!rom_path) {
-        /* Try default */
-        rom_path = "mass:/ROMS/game.bin";
+    /* For now, try a hardcoded ROM path for testing */
+    rom_path = "mass:/ROMS/game.bin";
+    
+    /* Also try host: path for PCSX2 */
+    if (argc > 1) {
+        rom_path = argv[1];
     }
 
+    scr_printf("Loading ROM: %s\n", rom_path);
+
     if (!cart_load(&emu, rom_path)) {
+        scr_printf("ERROR: Failed to load ROM!\n");
+        scr_printf("Make sure ROM exists at: %s\n", rom_path);
+        scr_printf("\nWaiting 5 seconds...\n");
+        
+        /* Wait a bit so user can read the message */
+        int i;
+        for (i = 0; i < 5 * 50; i++) {
+            /* ~50 vsyncs per second */
+            asm volatile("sync.l; ei");
+            asm volatile(
+                "li $v0, 0x1F\n"
+                "syscall\n"
+                ::: "v0"
+            );
+        }
+        
         ui_shutdown();
         return 1;
     }
 
+    scr_printf("ROM loaded successfully!\n");
+    scr_printf("Starting emulation...\n");
+
     emu_reset(&emu);
 
+    /* Main loop */
     while (emu.running) {
         ui_handle_input(&emu);
 
@@ -108,6 +137,8 @@ int main(int argc, char** argv)
 
 #else
 /* PC version for testing */
+#include <stdio.h>
+
 int main(int argc, char** argv)
 {
     EmulatorState emu;
