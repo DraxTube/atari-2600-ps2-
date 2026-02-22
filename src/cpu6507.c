@@ -390,4 +390,292 @@ int cpu_step(EmulatorState* emu)
 
         /* RTI */
         case 0x40:
-            c->P = (pull8(emu) & 
+            c->P = (pull8(emu) & ~(FLAG_B | FLAG_U)) | FLAG_U;
+            c->PC = pull16(emu);
+            cycles = 6;
+            break;
+
+        /* RTS */
+        case 0x60:
+            c->PC = pull16(emu) + 1;
+            cycles = 6;
+            break;
+
+        /* PHA/PLA/PHP/PLP */
+        case 0x48: push8(emu, c->A); cycles = 3; break;
+        case 0x68: c->A = pull8(emu); set_zn(c, c->A); cycles = 4; break;
+        case 0x08: push8(emu, c->P | FLAG_B | FLAG_U); cycles = 3; break;
+        case 0x28: c->P = (pull8(emu) & ~FLAG_B) | FLAG_U; cycles = 4; break;
+
+        /* JMP */
+        case 0x4C: /* absolute */
+            c->PC = mem_read(emu, c->PC) | (mem_read(emu, c->PC + 1) << 8);
+            cycles = 3;
+            break;
+        case 0x6C: /* indirect */
+        {
+            uint16_t ptr = mem_read(emu, c->PC) | (mem_read(emu, c->PC + 1) << 8);
+            /* 6502 indirect bug */
+            uint16_t lo = mem_read(emu, ptr);
+            uint16_t hi = mem_read(emu, (ptr & 0xFF00) | ((ptr + 1) & 0xFF));
+            c->PC = (hi << 8) | lo;
+            cycles = 5;
+            break;
+        }
+
+        /* ADC */
+        case 0x69: op_adc(c, imm(emu)); cycles = 2; break;
+        case 0x65: ar = zp(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 3; break;
+        case 0x75: ar = zpx(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0x6D: ar = abso(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0x7D: ar = absx(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0x79: ar = absy(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0x61: ar = indx(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 6; break;
+        case 0x71: ar = indy(emu); op_adc(c, mem_read(emu, ar.addr)); cycles = 5 + ar.cross; break;
+
+        /* ROR */
+        case 0x6A: c->A = op_ror(c, c->A); cycles = 2; break;
+        case 0x66: ar = zp(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); cycles = 5; break;
+        case 0x76: ar = zpx(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); cycles = 6; break;
+        case 0x6E: ar = abso(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); cycles = 6; break;
+        case 0x7E: ar = absx(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); cycles = 7; break;
+
+        /* STA */
+        case 0x85: ar = zp(emu); mem_write(emu, ar.addr, c->A); cycles = 3; break;
+        case 0x95: ar = zpx(emu); mem_write(emu, ar.addr, c->A); cycles = 4; break;
+        case 0x8D: ar = abso(emu); mem_write(emu, ar.addr, c->A); cycles = 4; break;
+        case 0x9D: ar = absx(emu); mem_write(emu, ar.addr, c->A); cycles = 5; break;
+        case 0x99: ar = absy(emu); mem_write(emu, ar.addr, c->A); cycles = 5; break;
+        case 0x81: ar = indx(emu); mem_write(emu, ar.addr, c->A); cycles = 6; break;
+        case 0x91: ar = indy(emu); mem_write(emu, ar.addr, c->A); cycles = 6; break;
+
+        /* STX */
+        case 0x86: ar = zp(emu); mem_write(emu, ar.addr, c->X); cycles = 3; break;
+        case 0x96: ar = zpy(emu); mem_write(emu, ar.addr, c->X); cycles = 4; break;
+        case 0x8E: ar = abso(emu); mem_write(emu, ar.addr, c->X); cycles = 4; break;
+
+        /* STY */
+        case 0x84: ar = zp(emu); mem_write(emu, ar.addr, c->Y); cycles = 3; break;
+        case 0x94: ar = zpx(emu); mem_write(emu, ar.addr, c->Y); cycles = 4; break;
+        case 0x8C: ar = abso(emu); mem_write(emu, ar.addr, c->Y); cycles = 4; break;
+
+        /* Transfer */
+        case 0xAA: c->X = c->A; set_zn(c, c->X); cycles = 2; break; /* TAX */
+        case 0xA8: c->Y = c->A; set_zn(c, c->Y); cycles = 2; break; /* TAY */
+        case 0x8A: c->A = c->X; set_zn(c, c->A); cycles = 2; break; /* TXA */
+        case 0x98: c->A = c->Y; set_zn(c, c->A); cycles = 2; break; /* TYA */
+        case 0xBA: c->X = c->SP; set_zn(c, c->X); cycles = 2; break; /* TSX */
+        case 0x9A: c->SP = c->X; cycles = 2; break;                  /* TXS */
+
+        /* LDA */
+        case 0xA9: c->A = imm(emu); set_zn(c, c->A); cycles = 2; break;
+        case 0xA5: ar = zp(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 3; break;
+        case 0xB5: ar = zpx(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4; break;
+        case 0xAD: ar = abso(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4; break;
+        case 0xBD: ar = absx(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4 + ar.cross; break;
+        case 0xB9: ar = absy(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4 + ar.cross; break;
+        case 0xA1: ar = indx(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 6; break;
+        case 0xB1: ar = indy(emu); c->A = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 5 + ar.cross; break;
+
+        /* LDX */
+        case 0xA2: c->X = imm(emu); set_zn(c, c->X); cycles = 2; break;
+        case 0xA6: ar = zp(emu); c->X = mem_read(emu, ar.addr); set_zn(c, c->X); cycles = 3; break;
+        case 0xB6: ar = zpy(emu); c->X = mem_read(emu, ar.addr); set_zn(c, c->X); cycles = 4; break;
+        case 0xAE: ar = abso(emu); c->X = mem_read(emu, ar.addr); set_zn(c, c->X); cycles = 4; break;
+        case 0xBE: ar = absy(emu); c->X = mem_read(emu, ar.addr); set_zn(c, c->X); cycles = 4 + ar.cross; break;
+
+        /* LDY */
+        case 0xA0: c->Y = imm(emu); set_zn(c, c->Y); cycles = 2; break;
+        case 0xA4: ar = zp(emu); c->Y = mem_read(emu, ar.addr); set_zn(c, c->Y); cycles = 3; break;
+        case 0xB4: ar = zpx(emu); c->Y = mem_read(emu, ar.addr); set_zn(c, c->Y); cycles = 4; break;
+        case 0xAC: ar = abso(emu); c->Y = mem_read(emu, ar.addr); set_zn(c, c->Y); cycles = 4; break;
+        case 0xBC: ar = absx(emu); c->Y = mem_read(emu, ar.addr); set_zn(c, c->Y); cycles = 4 + ar.cross; break;
+
+        /* CMP */
+        case 0xC9: op_cmp(c, c->A, imm(emu)); cycles = 2; break;
+        case 0xC5: ar = zp(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 3; break;
+        case 0xD5: ar = zpx(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0xCD: ar = abso(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0xDD: ar = absx(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0xD9: ar = absy(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0xC1: ar = indx(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 6; break;
+        case 0xD1: ar = indy(emu); op_cmp(c, c->A, mem_read(emu, ar.addr)); cycles = 5 + ar.cross; break;
+
+        /* CPX */
+        case 0xE0: op_cmp(c, c->X, imm(emu)); cycles = 2; break;
+        case 0xE4: ar = zp(emu); op_cmp(c, c->X, mem_read(emu, ar.addr)); cycles = 3; break;
+        case 0xEC: ar = abso(emu); op_cmp(c, c->X, mem_read(emu, ar.addr)); cycles = 4; break;
+
+        /* CPY */
+        case 0xC0: op_cmp(c, c->Y, imm(emu)); cycles = 2; break;
+        case 0xC4: ar = zp(emu); op_cmp(c, c->Y, mem_read(emu, ar.addr)); cycles = 3; break;
+        case 0xCC: ar = abso(emu); op_cmp(c, c->Y, mem_read(emu, ar.addr)); cycles = 4; break;
+
+        /* DEC */
+        case 0xC6: ar = zp(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 5; break;
+        case 0xD6: ar = zpx(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 6; break;
+        case 0xCE: ar = abso(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 6; break;
+        case 0xDE: ar = absx(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 7; break;
+
+        /* INC */
+        case 0xE6: ar = zp(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 5; break;
+        case 0xF6: ar = zpx(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 6; break;
+        case 0xEE: ar = abso(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 6; break;
+        case 0xFE: ar = absx(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); set_zn(c, val); cycles = 7; break;
+
+        /* DEX/DEY/INX/INY */
+        case 0xCA: c->X--; set_zn(c, c->X); cycles = 2; break;
+        case 0x88: c->Y--; set_zn(c, c->Y); cycles = 2; break;
+        case 0xE8: c->X++; set_zn(c, c->X); cycles = 2; break;
+        case 0xC8: c->Y++; set_zn(c, c->Y); cycles = 2; break;
+
+        /* SBC */
+        case 0xE9: op_sbc(c, imm(emu)); cycles = 2; break;
+        case 0xE5: ar = zp(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 3; break;
+        case 0xF5: ar = zpx(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0xED: ar = abso(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 4; break;
+        case 0xFD: ar = absx(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0xF9: ar = absy(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 4 + ar.cross; break;
+        case 0xE1: ar = indx(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 6; break;
+        case 0xF1: ar = indy(emu); op_sbc(c, mem_read(emu, ar.addr)); cycles = 5 + ar.cross; break;
+
+        /* NOP */
+        case 0xEA: cycles = 2; break;
+
+        /* --- Illegal opcodes used by some games --- */
+
+        /* NOP variants (various sizes) */
+        case 0x1A: case 0x3A: case 0x5A: case 0x7A:
+        case 0xDA: case 0xFA:
+            cycles = 2; break;
+        case 0x04: case 0x44: case 0x64: /* DOP zp */
+            c->PC++; cycles = 3; break;
+        case 0x14: case 0x34: case 0x54: case 0x74:
+        case 0xD4: case 0xF4: /* DOP zpx */
+            c->PC++; cycles = 4; break;
+        case 0x0C: /* TOP abs */
+            c->PC += 2; cycles = 4; break;
+        case 0x1C: case 0x3C: case 0x5C: case 0x7C:
+        case 0xDC: case 0xFC: /* TOP absx */
+            ar = absx(emu); cycles = 4 + ar.cross; break;
+        case 0x80: case 0x82: case 0x89: case 0xC2: case 0xE2:
+            c->PC++; cycles = 2; break;
+
+        /* LAX: LDA + LDX */
+        case 0xA7: ar = zp(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 3; break;
+        case 0xB7: ar = zpy(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4; break;
+        case 0xAF: ar = abso(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4; break;
+        case 0xBF: ar = absy(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 4 + ar.cross; break;
+        case 0xA3: ar = indx(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 6; break;
+        case 0xB3: ar = indy(emu); c->A = c->X = mem_read(emu, ar.addr); set_zn(c, c->A); cycles = 5 + ar.cross; break;
+
+        /* SAX: STA & STX */
+        case 0x87: ar = zp(emu); mem_write(emu, ar.addr, c->A & c->X); cycles = 3; break;
+        case 0x97: ar = zpy(emu); mem_write(emu, ar.addr, c->A & c->X); cycles = 4; break;
+        case 0x8F: ar = abso(emu); mem_write(emu, ar.addr, c->A & c->X); cycles = 4; break;
+        case 0x83: ar = indx(emu); mem_write(emu, ar.addr, c->A & c->X); cycles = 6; break;
+
+        /* DCP: DEC + CMP */
+        case 0xC7: ar = zp(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 5; break;
+        case 0xD7: ar = zpx(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 6; break;
+        case 0xCF: ar = abso(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 6; break;
+        case 0xDF: ar = absx(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 7; break;
+        case 0xDB: ar = absy(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 7; break;
+        case 0xC3: ar = indx(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 8; break;
+        case 0xD3: ar = indy(emu); val = mem_read(emu, ar.addr) - 1; mem_write(emu, ar.addr, val); op_cmp(c, c->A, val); cycles = 8; break;
+
+        /* ISB/ISC: INC + SBC */
+        case 0xE7: ar = zp(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 5; break;
+        case 0xF7: ar = zpx(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 6; break;
+        case 0xEF: ar = abso(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 6; break;
+        case 0xFF: ar = absx(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 7; break;
+        case 0xFB: ar = absy(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 7; break;
+        case 0xE3: ar = indx(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 8; break;
+        case 0xF3: ar = indy(emu); val = mem_read(emu, ar.addr) + 1; mem_write(emu, ar.addr, val); op_sbc(c, val); cycles = 8; break;
+
+        /* SLO: ASL + ORA */
+        case 0x07: ar = zp(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 5; break;
+        case 0x17: ar = zpx(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x0F: ar = abso(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x1F: ar = absx(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x1B: ar = absy(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x03: ar = indx(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 8; break;
+        case 0x13: ar = indy(emu); val = op_asl(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A |= val; set_zn(c, c->A); cycles = 8; break;
+
+        /* RLA: ROL + AND */
+        case 0x27: ar = zp(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 5; break;
+        case 0x37: ar = zpx(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x2F: ar = abso(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x3F: ar = absx(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x3B: ar = absy(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x23: ar = indx(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 8; break;
+        case 0x33: ar = indy(emu); val = op_rol(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A &= val; set_zn(c, c->A); cycles = 8; break;
+
+        /* SRE: LSR + EOR */
+        case 0x47: ar = zp(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 5; break;
+        case 0x57: ar = zpx(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x4F: ar = abso(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 6; break;
+        case 0x5F: ar = absx(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x5B: ar = absy(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 7; break;
+        case 0x43: ar = indx(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 8; break;
+        case 0x53: ar = indy(emu); val = op_lsr(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); c->A ^= val; set_zn(c, c->A); cycles = 8; break;
+
+        /* RRA: ROR + ADC */
+        case 0x67: ar = zp(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 5; break;
+        case 0x77: ar = zpx(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 6; break;
+        case 0x6F: ar = abso(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 6; break;
+        case 0x7F: ar = absx(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 7; break;
+        case 0x7B: ar = absy(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 7; break;
+        case 0x63: ar = indx(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 8; break;
+        case 0x73: ar = indy(emu); val = op_ror(c, mem_read(emu, ar.addr)); mem_write(emu, ar.addr, val); op_adc(c, val); cycles = 8; break;
+
+        /* SBC illegal mirror */
+        case 0xEB: op_sbc(c, imm(emu)); cycles = 2; break;
+
+        /* ANC */
+        case 0x0B: case 0x2B:
+            c->A &= imm(emu);
+            set_zn(c, c->A);
+            if (c->A & 0x80) c->P |= FLAG_C; else c->P &= ~FLAG_C;
+            cycles = 2;
+            break;
+
+        /* ALR: AND + LSR */
+        case 0x4B:
+            c->A &= imm(emu);
+            c->P = (c->P & ~FLAG_C) | (c->A & 1);
+            c->A >>= 1;
+            set_zn(c, c->A);
+            cycles = 2;
+            break;
+
+        /* ARR: AND + ROR (simplified) */
+        case 0x6B:
+        {
+            c->A &= imm(emu);
+            int carry = c->P & FLAG_C;
+            c->A = (c->A >> 1) | (carry ? 0x80 : 0);
+            set_zn(c, c->A);
+            if (c->A & 0x40) c->P |= FLAG_C; else c->P &= ~FLAG_C;
+            if ((c->A & 0x40) ^ ((c->A & 0x20) << 1)) c->P |= FLAG_V; else c->P &= ~FLAG_V;
+            cycles = 2;
+            break;
+        }
+
+        /* KIL/JAM - halt CPU */
+        case 0x02: case 0x12: case 0x22: case 0x32:
+        case 0x42: case 0x52: case 0x62: case 0x72:
+        case 0x92: case 0xB2: case 0xD2: case 0xF2:
+            c->halted = 1;
+            cycles = 2;
+            break;
+
+        /* Remaining unhandled illegals: treat as NOP */
+        default:
+            cycles = 2;
+            break;
+    }
+
+    c->cycles += cycles;
+    return cycles;
+}
